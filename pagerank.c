@@ -10,7 +10,7 @@
 void* matrix_mul_worker(void* argv);
 void matrix_mul_thread(double* result, const double* matrix, const double* vector, const int n, const int nthreads);
 double* matrix_init(const double value, ssize_t n, ssize_t n2);
-double calculate_vector_norm(const double* vector, const ssize_t width);
+double vector_norm_minus(const double* vector_a, const double* vector_b, const ssize_t width);
 
 // matrix struct:
 typedef struct {
@@ -131,8 +131,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		if(current->page->noutlinks == 0){
 			// go down the column putting in the 1/N, adjusted for M_hat
 			for(j = 0; j < npages; j++){
-				matrix[j * npages + i] = (div_page*dampener);
-				matrix[j * npages + i] += add_E;
+				matrix[j * npages + i] += (div_page*dampener);
+				//matrix[j * npages + i] += add_E;
 			}
 		}
 
@@ -140,8 +140,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		while(inlink != NULL){
 			// calculate 1 / |OUT(j)| for each inlink page, adjusted for M_hat
 			j = inlink->page->index;
-			matrix[i * npages + j] = ((1.0 / (double) inlink->page->noutlinks)*dampener);
-			matrix[i * npages + j] += add_E;
+			matrix[i * npages + j] += ((1.0 / (double) inlink->page->noutlinks)*dampener);
+			//matrix[i * npages + j] += add_E;
 			inlink = inlink->next;
 		}
 
@@ -186,10 +186,13 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		#endif
 
 		// calculate the vector norm of the result.
-		norm_result = calculate_vector_norm(p_result, npages);
+		norm_result = vector_norm_minus(p_result, p_previous, npages);
 
 		// check for convergence
-		if(norm_result - norm_previous <= EPSILON) break;
+
+		printf("converge: %.81f\n", norm_result);
+		sleep(2);
+		if(norm_result <= EPSILON) break;
 
 		// set up for next iteration...
 		norm_previous = norm_result;
@@ -219,16 +222,28 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 }
 
+double vector_norm_minus(const double* vector_a, const double* vector_b, const ssize_t width){
+	double result = 0.0;
+	double* vector = malloc(sizeof(double)*width);
 
+	// subtract:
+	for(int i=0; i < width; i++){
+		vector[i] = vector_a[i] - vector_b[i];
+	}
 
-double calculate_vector_norm(const double* vector, const ssize_t width){
-	double result = 0;
+	#ifdef EBUG
+		printf("vector norm calc:\n");
+		display_vector(vector, width);
+		printf("\n");
+	#endif
 
 	for(int i=0; i < width; i++){
 		result += vector[i]*vector[i];
 	}
 
 	result = sqrt(result);
+
+	free(vector);
 
 	return result;
 }
@@ -297,7 +312,7 @@ void* matrix_mul_worker(void* argv){
 	const double* vector = data->vector;
 	double* result = data->result;
 	
-	double sum = 0.0;
+	long double sum = 0.0;
 	
 	// only use for a matrix * vector ( ^M * P(t) )
 	for(int i=start; i < end; i++){
