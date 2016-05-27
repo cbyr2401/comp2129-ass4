@@ -90,6 +90,11 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	// calculate the 1/N value:
 	const double div_page = (1.0 / (double)npages);
 
+	#ifdef EBUG
+		printf("add_E: %.8lf\n", add_E);
+		printf("div_page: %.8lf\n", div_page);
+	#endif
+
 	// declare matrix and intialise with given value.
 	double* matrix = matrix_init(add_E, npages, npages);
 	double* p_previous = matrix_init(div_page, npages, 1);
@@ -145,6 +150,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 		#ifdef EBUG
 			// display the matrix each iteration (debug)
+			printf("matrix building...\n");
 			display(matrix, npages);
 			printf("\n");
 		#endif
@@ -183,7 +189,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		norm_result = calculate_vector_norm(p_result, npages);
 
 		// check for convergence
-		if(norm_result - norm_previous < EPSILON) break;
+		if(norm_result - norm_previous <= EPSILON) break;
 
 		// set up for next iteration...
 		norm_previous = norm_result;
@@ -291,13 +297,13 @@ void* matrix_mul_worker(void* argv){
 	const double* vector = data->vector;
 	double* result = data->result;
 	
-	double sum = 0;
+	double sum = 0.0;
 	
 	// only use for a matrix * vector ( ^M * P(t) )
 	for(int i=start; i < end; i++){
-		sum = 0;
+		sum = 0.0;
 		for(int j=0; j < width; j++){
-			sum += matrix[i * width + j]*vector[j];
+			sum += (matrix[i * width + j]*vector[j]);
 		}
 		result[i] = sum;
 	}
