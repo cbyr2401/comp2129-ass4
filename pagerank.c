@@ -109,7 +109,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	node* inlink = NULL;
 
 	// variables for the vector norm of each matrix:
-	double norm_previous = 0;
 	double norm_result = 0;
 
 	// list of keys:
@@ -166,10 +165,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			 v) Store updated cached value for || P(t) ||
 			vi) Free the previous P(t) and set P(t+1) TO p(t)
 	*/
-	norm_previous = calculate_vector_norm(p_previous, npages);
 
 	#ifdef EBUG
-		printf("norm: %.8lf\n", norm_previous);
 		display_vector(p_previous, npages);
 		printf("\n");
 	#endif
@@ -185,17 +182,13 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			printf("\n");
 		#endif
 
-		// calculate the vector norm of the result.
+		// calculate the vector norm.
 		norm_result = vector_norm_minus(p_result, p_previous, npages);
 
 		// check for convergence
-
-		printf("converge: %.81f\n", norm_result);
-		sleep(2);
 		if(norm_result <= EPSILON) break;
 
 		// set up for next iteration...
-		norm_previous = norm_result;
 		free(p_previous);
 		p_previous = p_result;
 		p_result = NULL;
@@ -213,7 +206,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		printf("%s %.8lf\n", keys[i], p_result[i]);
 	}
 
-	printf("\n");
+	//printf("\n");
 
 	// free everything...
 	free(matrix);
