@@ -144,9 +144,9 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		current = current->next;
 
 		#ifdef EBUG
-		// display the matrix each iteration (debug)
-		display(matrix, npages);
-		printf("\n");
+			// display the matrix each iteration (debug)
+			display(matrix, npages);
+			printf("\n");
 		#endif
 	}
 
@@ -165,6 +165,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	#ifdef EBUG
 		printf("norm: %.8lf\n", norm_previous);
 		display_vector(p_previous, npages);
+		printf("\n");
 	#endif
 
 
@@ -194,6 +195,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	#ifdef EBUG
 		display_vector(p_result, npages);
+		printf("\n");
+		printf("\n");
 	#endif
 
 	// display results...
@@ -201,11 +204,16 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		printf("%s %.8lf\n", keys[i], p_result[i]);
 	}
 
+	printf("\n");
+
 	// free everything...
 	free(matrix);
 	free(p_result);
 	free(p_previous);
+
 }
+
+
 
 double calculate_vector_norm(const double* vector, const ssize_t width){
 	double result = 0;
@@ -283,7 +291,7 @@ void* matrix_mul_worker(void* argv){
 	const double* vector = data->vector;
 	double* result = data->result;
 	
-	float sum = 0;
+	double sum = 0;
 	
 	// only use for a matrix * vector ( ^M * P(t) )
 	for(int i=start; i < end; i++){
