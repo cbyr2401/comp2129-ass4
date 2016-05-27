@@ -8,14 +8,15 @@
 #include "pagerank.h"
 
 void* matrix_mul_worker(void* argv);
-void matrix_mul_thread(float* result, const float* matrix, const float* vector, const int n, const int nthreads);
-float* matrix_init(const float value, ssize_t n);
+void matrix_mul_thread(double* result, const double* matrix, const double* vector, const int n, const int nthreads);
+double* matrix_init(const double value, ssize_t n, ssize_t n2);
+double calculate_vector_norm(const double* vector, const ssize_t width);
 
 // matrix struct:
 typedef struct {
-	float* result;
-	const float* matrix;
-	const float* vector;
+	double* result;
+	const double* matrix;
+	const double* vector;
 	int width;
 	int start;
 	int end;
@@ -24,13 +25,23 @@ typedef struct {
 /**
  * Displays given matrix.
  */
-void display(const float* matrix, ssize_t npage) {
+void display(const double* matrix, ssize_t npage) {
 	for (ssize_t y = 0; y < npage; y++) {
 		for (ssize_t x = 0; x < npage; x++) {
 			if (x > 0) printf(" ");
 			printf("%.8lf", matrix[y * npage + x]);
 		}
 
+		printf("\n");
+	}
+}
+
+/**
+ * Displays given matrix.
+ */
+void display_vector(const double* vector, ssize_t npage) {
+	for (ssize_t x = 0; x < npage; x++) {
+		printf("%.8lf", vector[x]);
 		printf("\n");
 	}
 }
@@ -44,43 +55,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		- implement any other necessary functions
 		- implement any other useful data structures
 	*/
-	
-	/*
-	node* current = list;
-	node* inlink = NULL;
-
-
-	ssize_t current_index;
-	while(current != NULL){
-		printf("****** PAGE DETAILS ******\n");
-		printf("name: %s\n", current->page->name);
-		printf("index: %zu\n", current->page->index);
-		printf("noutlinks: %zu\n", current->page->noutlinks);
-
-		current_index = current->page->index;
-
-		printf("~~~~~~~~ LINKED PAGES ~~~~~~~\n");
-		inlink = current->page->inlinks;
-		if (inlink != NULL){
-			size_t o = malloc(sizeof(ssize_t)*1);
-			o[0] = 0;
-			int index = 0;
-			while(inlink != NULL){
-				printf("name: %zu\n", inlink->page->index);
-				o[0]++;
-				o = realloc(sizeof(ssize_t)*o[0]);
-				out[inlink->page->index]
-				inlink = inlink->next;
-
-			}
-		}
-		current = current->next;
-
-
-	}
-	*/
-
-
 
 	/*  What goes in each (i,j)th cell:
 	
@@ -110,19 +84,16 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	    6) Return P(t) final iteration
 	*/
 
-
-
-
 	// for calculating M-hat (i,j)th entries.
-	const double add_E = ((1.0 - dampener) / (float)npages);
+	const double add_E = ((1.0 - dampener) / (double)npages);
 
 	// calculate the 1/N value:
-	const float div_page = (1.0 / (float)npages);
+	const double div_page = (1.0 / (double)npages);
 
 	// declare matrix and intialise with given value.
-	float* matrix = matrix_init((float)add_E, npages, npages);
-	float* p_previous = matrix_init(div_page, npages, 1);
-	float* p_result = NULL;
+	double* matrix = matrix_init(add_E, npages, npages);
+	double* p_previous = matrix_init(div_page, npages, 1);
+	double* p_result;
 
 	// matrix index temp values:
 	ssize_t i = 0;
@@ -133,8 +104,11 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	node* inlink = NULL;
 
 	// variables for the vector norm of each matrix:
-	double norm_previous = 0;  // since the start matrix always has the same vector norm...
+	double norm_previous = 0;
 	double norm_result = 0;
+
+	// list of keys:
+	char* keys[npages];
 
 	/*
 		Algorithm: Building Matrix M and M_hat
@@ -145,10 +119,15 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	*/
 	while(current != NULL){
 		i = current->page->index;
+
+		// add name to list of keys
+		keys[i] = current->page->name;
+
 		if(current->page->noutlinks == 0){
 			// go down the column putting in the 1/N, adjusted for M_hat
 			for(j = 0; j < npages; j++){
-				matrix[j * npages + i] = (div_page*dampener)+add_E;
+				matrix[j * npages + i] = (div_page*dampener);
+				matrix[j * npages + i] += add_E;
 			}
 		}
 
@@ -156,7 +135,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		while(inlink != NULL){
 			// calculate 1 / |OUT(j)| for each inlink page, adjusted for M_hat
 			j = inlink->page->index;
-			matrix[i * npages + j] = ((1.0 / (float) inlink->page->noutlinks)*dampener)+add_E;
+			matrix[i * npages + j] = ((1.0 / (double) inlink->page->noutlinks)*dampener);
+			matrix[i * npages + j] += add_E;
 			inlink = inlink->next;
 		}
 
@@ -171,17 +151,77 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	}
 
 	// We now have the matrix M_hat ready to go...let's start the pagerank iterations.
-	while(1){
-		matrix_mul_thread(p_result, matrix, p_previous, npage, nthreads);
+	/*
+			Algorithm: Perform iterations (0 to infinity)
+		     i) Multiply matrix by P(t)
+		    ii) Calculate vector norm for "result" P(t+1) -- cache it for later use.
+		   iii) Check for convergence (using cached value and calculated one)
+		    iv) Either, break if true or run again if false.
+			 v) Store updated cached value for || P(t) ||
+			vi) Free the previous P(t) and set P(t+1) TO p(t)
+	*/
+	norm_previous = calculate_vector_norm(p_previous, npages);
 
+	#ifdef EBUG
+		printf("norm: %.8lf\n", norm_previous);
+		display_vector(p_previous, npages);
+	#endif
+
+
+	while(1){
+		p_result = malloc(sizeof(double)*npages);
+
+		matrix_mul_thread(p_result, matrix, p_previous, npages, nthreads);
+
+		#ifdef EBUG
+			display_vector(p_result, npages);
+			printf("\n");
+		#endif
+
+		// calculate the vector norm of the result.
+		norm_result = calculate_vector_norm(p_result, npages);
+
+		// check for convergence
+		if(norm_result - norm_previous < EPSILON) break;
+
+		// set up for next iteration...
+		norm_previous = norm_result;
+		free(p_previous);
+		p_previous = p_result;
+		p_result = NULL;
 
 	}
 
+	#ifdef EBUG
+		display_vector(p_result, npages);
+	#endif
 
+	// display results...
+	for(i=0; i < npages; i++){
+		printf("%s %.8lf\n", keys[i], p_result[i]);
+	}
+
+	// free everything...
+	free(matrix);
+	free(p_result);
+	free(p_previous);
 }
 
-float* matrix_init(const float value, ssize_t n, ssize_t n2){
-	float* matrix = (float*) malloc((n*n) * sizeof(float));
+double calculate_vector_norm(const double* vector, const ssize_t width){
+	double result = 0;
+
+	for(int i=0; i < width; i++){
+		result += vector[i]*vector[i];
+	}
+
+	result = sqrt(result);
+
+	return result;
+}
+
+
+double* matrix_init(const double value, ssize_t n, ssize_t n2){
+	double* matrix = (double*) malloc((n*n) * sizeof(double));
 
 	for(int i=0; i < n*n2; i++){
 		matrix[i] = value;
@@ -194,7 +234,7 @@ float* matrix_init(const float value, ssize_t n, ssize_t n2){
 /**
  *	Matrix Multiply Thread Controller Process
  */
-void matrix_mul_thread(float* result, const float* matrix, const float* vector, const int n, const int nthreads){
+void matrix_mul_thread(double* result, const double* matrix, const double* vector, const int n, const int nthreads){
 	// initialise arrays for threading
 	pthread_t thread_ids[nthreads];
 	threadargs args[nthreads];
@@ -239,9 +279,9 @@ void* matrix_mul_worker(void* argv){
 	const int end = data->end;
 	const int width = data->width;
 	
-	const float* matrix = data->matrix;
-	const float* vector = data->vector;
-	float* result = data->result;
+	const double* matrix = data->matrix;
+	const double* vector = data->vector;
+	double* result = data->result;
 	
 	float sum = 0;
 	
@@ -251,7 +291,7 @@ void* matrix_mul_worker(void* argv){
 		for(int j=0; j < width; j++){
 			sum += matrix[i * width + j]*vector[j];
 		}
-		result[0 * width + i] = sum;
+		result[i] = sum;
 	}
 	
 	return NULL;
