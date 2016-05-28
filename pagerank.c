@@ -213,10 +213,6 @@ double vector_norm(const double* vector_a, const double* vector_b, const ssize_t
 	double result = 0.0;
 
 	double* vector = vector_sub(vector_a, vector_b, width, nthreads);
-	// subtract:
-	/*for(int i=0; i < width; i++){
-		vector[i] = vector_a[i] - vector_b[i];
-	}*/
 
 	#ifdef EBUG
 		printf("vector norm calc:\n");
@@ -225,12 +221,7 @@ double vector_norm(const double* vector_a, const double* vector_b, const ssize_t
 	#endif
 
 	result = vector_sumsq(vector, width, nthreads);
-	/*for(int i=0; i < width; i++){
-		result += vector[i]*vector[i];
-	}*/
-
 	result = sqrt(result);
-
 	free(vector);
 
 	return result;
@@ -287,6 +278,9 @@ double vector_sumsq(const double* vector, const ssize_t width, const ssize_t nth
 
 }
 
+/**
+ *	Thread Worker for "vector_sumsq"
+ */
 void* vector_sumsq_worker(void* argv){
 	threadargs* data = (threadargs*) argv;
 
