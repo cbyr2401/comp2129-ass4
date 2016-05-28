@@ -119,6 +119,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		// add name to list of keys
 		keys[i] = current->page->name;
 
+
 		if(current->page->noutlinks == 0){
 			// go down the column putting in the 1/N, adjusted for M_hat
 			for(j = 0; j < npages; j++){
@@ -202,6 +203,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	free(p_previous);
 
 }
+
 
 /**
  *	Calculates the vector norm of the subtraction of two vectors.
@@ -498,6 +500,7 @@ void* matrix_mul_worker(void* argv){
 	
 	return NULL;
 }
+
 
 
 #ifdef EBUG
