@@ -60,8 +60,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		
 			^M = d*M(i,j) + ((1 - d) / N)
 		
-		Algorithm
-		-------------
+		Algorithm: PageRank main
 		1) Calculate |OUT| and |IN| sets  <<<<<<<<<< HARD
 		2) Build Matrix (including dampener)
 		3) Initialise P(0)
@@ -196,8 +195,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	for(i=0; i < npages; i++){
 		printf("%s %.8lf\n", keys[i], p_result[i]);
 	}
-
-	//printf("\n");
 
 	// free everything...
 	free(matrix);
