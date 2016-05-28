@@ -22,11 +22,11 @@ void* matrix_init_worker(void* argv);
 void matrix_mul(double* result, const double* matrix, const double* vector, const int n, const int nthreads);
 void* matrix_mul_worker(void* argv);
 
-
+#ifdef EBUG
 // display:
 void display(const double* matrix, ssize_t npage);
 void display_vector(const double* vector, ssize_t npage);
-
+#endif
 
 // matrix struct:
 typedef struct {
@@ -500,6 +500,7 @@ void* matrix_mul_worker(void* argv){
 }
 
 
+#ifdef EBUG
 /**
  * Displays given matrix.
  */
@@ -524,7 +525,7 @@ void display_vector(const double* vector, ssize_t npage) {
 		printf("\n");
 	}
 }
-
+#endif
 
 /*
 ######################################
