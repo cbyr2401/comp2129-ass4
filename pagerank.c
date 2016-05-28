@@ -230,6 +230,7 @@ double vector_norm(const double* vector_a, const double* vector_b, const ssize_t
 	return result;
 }
 
+
 /**
  *	Performs vector sum squared on single vector.  Threaded
  *		Formula: sum += vector[i] * vector[i], for all i
@@ -281,6 +282,7 @@ double vector_sumsq(const double* vector, const ssize_t width, const ssize_t nth
 
 }
 
+
 /**
  *	Thread Worker for "vector_sumsq"
  */
@@ -302,14 +304,6 @@ void* vector_sumsq_worker(void* argv){
 
 	return NULL;
 }
-
-
-
-
-
-
-
-
 
 
 /**
@@ -357,6 +351,7 @@ double* matrix_init(const double value, ssize_t n, ssize_t nthreads){
 
 	return matrix;
 }
+
 
 /**
  *	Thread Worker for "matrix_init"
@@ -420,6 +415,7 @@ double* vector_sub(const double* vector_a, const double* vector_b, const ssize_t
 	return vector;
 }
 
+
 /**
  *	Thread Worker for "vector_sub"
  */
@@ -479,6 +475,7 @@ void matrix_mul(double* result, const double* matrix, const double* vector, cons
 	return;
 }
 
+
 /**
  *	Matrix Multiply Thread Worker Process
  */
@@ -508,7 +505,6 @@ void* matrix_mul_worker(void* argv){
 }
 
 
-
 /**
  * Displays given matrix.
  */
@@ -523,6 +519,7 @@ void display(const double* matrix, ssize_t npage) {
 	}
 }
 
+
 /**
  * Displays given vector.
  */
@@ -532,6 +529,7 @@ void display_vector(const double* vector, ssize_t npage) {
 		printf("\n");
 	}
 }
+
 
 /*
 ######################################
