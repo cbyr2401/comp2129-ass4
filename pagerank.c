@@ -7,10 +7,23 @@
 
 #include "pagerank.h"
 
-void* matrix_mul_worker(void* argv);
-void matrix_mul_thread(double* result, const double* matrix, const double* vector, const int n, const int nthreads);
+
+// vector operations:
+double vector_norm(const double* vector_a, const double* vector_b, const ssize_t width, const ssize_t nthreads);
+double* vector_sub(const double* vector_a, const double* vector_b, const ssize_t width, const ssize_t nthreads);
+void* vector_sub_worker(void* args);
+double vector_sumsq(const double* vector, const ssize_t width, const ssize_t nthreads);
+void* vector_sumsq_worker(void* argv);
+
+// matrix operations:
 double* matrix_init(const double value, ssize_t n, ssize_t n2);
-double vector_norm_minus(const double* vector_a, const double* vector_b, const ssize_t width);
+void matrix_mul(double* result, const double* matrix, const double* vector, const int n, const int nthreads);
+void* matrix_mul_worker(void* argv);
+
+// display:
+void display(const double* matrix, ssize_t npage);
+void display_vector(const double* vector, ssize_t npage);
+
 
 // matrix struct:
 typedef struct {
@@ -22,29 +35,6 @@ typedef struct {
 	int end;
 } threadargs;
 
-/**
- * Displays given matrix.
- */
-void display(const double* matrix, ssize_t npage) {
-	for (ssize_t y = 0; y < npage; y++) {
-		for (ssize_t x = 0; x < npage; x++) {
-			if (x > 0) printf(" ");
-			printf("%.8lf", matrix[y * npage + x]);
-		}
-
-		printf("\n");
-	}
-}
-
-/**
- * Displays given matrix.
- */
-void display_vector(const double* vector, ssize_t npage) {
-	for (ssize_t x = 0; x < npage; x++) {
-		printf("%.8lf", vector[x]);
-		printf("\n");
-	}
-}
 
 void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double dampener) {
 
@@ -175,7 +165,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	while(1){
 		p_result = malloc(sizeof(double)*npages);
 
-		matrix_mul_thread(p_result, matrix, p_previous, npages, nthreads);
+		matrix_mul(p_result, matrix, p_previous, npages, nthreads);
 
 		#ifdef EBUG
 			display_vector(p_result, npages);
@@ -183,7 +173,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		#endif
 
 		// calculate the vector norm.
-		norm_result = vector_norm_minus(p_result, p_previous, npages);
+		norm_result = vector_norm(p_result, p_previous, npages, nthreads);
 
 		// check for convergence
 		if(norm_result <= EPSILON) break;
@@ -215,14 +205,18 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 }
 
-double vector_norm_minus(const double* vector_a, const double* vector_b, const ssize_t width){
+/**
+ *	Calculates the vector norm of the subtraction of two vectors.
+ *		Formula: || P(1) - P(0) ||
+ */
+double vector_norm(const double* vector_a, const double* vector_b, const ssize_t width, const ssize_t nthreads){
 	double result = 0.0;
-	double* vector = malloc(sizeof(double)*width);
 
+	double* vector = vector_sub(vector_a, vector_b, width, nthreads);
 	// subtract:
-	for(int i=0; i < width; i++){
+	/*for(int i=0; i < width; i++){
 		vector[i] = vector_a[i] - vector_b[i];
-	}
+	}*/
 
 	#ifdef EBUG
 		printf("vector norm calc:\n");
@@ -230,9 +224,10 @@ double vector_norm_minus(const double* vector_a, const double* vector_b, const s
 		printf("\n");
 	#endif
 
-	for(int i=0; i < width; i++){
+	result = vector_sumsq(vector, width, nthreads);
+	/*for(int i=0; i < width; i++){
 		result += vector[i]*vector[i];
-	}
+	}*/
 
 	result = sqrt(result);
 
@@ -241,7 +236,141 @@ double vector_norm_minus(const double* vector_a, const double* vector_b, const s
 	return result;
 }
 
+/**
+ *	Performs vector sum squared on single vector.  Threaded
+ *		Formula: sum += vector[i] * vector[i], for all i
+ */
+double vector_sumsq(const double* vector, const ssize_t width, const ssize_t nthreads){
+	double sum = 0.0;
+	// initialise arrays for threading
+	pthread_t thread_ids[nthreads];
+	threadargs args[nthreads];
 
+	// get a function pointer to worker thread:
+	void* (*worker)(void*);
+	worker = &vector_sumsq_worker;
+
+	// initalise ranges
+	int start = 0;
+	int end = 0;
+
+	// set arguments for worker
+	for(int id=0; id < nthreads; id++){
+		end = id == nthreads - 1 ? width : (id + 1) * (width / nthreads);
+		args[id] = (threadargs) {
+			.result = NULL,
+			.vector = vector,
+			.start = start,
+			.width = width,
+			.end = end,
+		};
+		start = end;
+	}
+
+	// launch threads
+	for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
+
+	// wait for threads to finish
+	for (size_t i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
+
+	// sum up results
+	for (size_t i = 0; i < nthreads; i++){
+		sum += *(args[i].result);
+		free(args[i].result);
+	}
+
+	#ifdef EBUG
+		printf("sumsq: %.8lf\n", sum);
+	#endif
+
+	return sum;
+
+}
+
+void* vector_sumsq_worker(void* argv){
+	threadargs* data = (threadargs*) argv;
+
+	const int start = data->start;
+	const int end = data->end;
+
+	const double* vector = data->vector;
+	double* result = malloc(sizeof(double));
+	double sum = 0.0;
+
+	for(int i=start; i < end; i++){
+		sum += vector[i]*vector[i];
+	}
+	*result = sum;
+	data->result = result;
+
+	return NULL;
+}
+
+/**
+ *	Performs vector subtraction between two given vectors.  Threaded
+ *		Formula: P(1) - P(0)
+ */
+double* vector_sub(const double* vector_a, const double* vector_b, const ssize_t width, const ssize_t nthreads){
+	double* vector = malloc(sizeof(double)*width);
+
+	// initialise arrays for threading
+	pthread_t thread_ids[nthreads];
+	threadargs args[nthreads];
+
+	// get a function pointer to worker thread:
+	void* (*worker)(void*);
+	worker = &vector_sub_worker;
+
+	// initalise ranges
+	int start = 0;
+	int end = 0;
+
+	// set arguments for worker
+	for(int id=0; id < nthreads; id++){
+		end = id == nthreads - 1 ? width : (id + 1) * (width / nthreads);
+		args[id] = (threadargs) {
+			.result = vector,
+			.matrix = vector_a,
+			.vector = vector_b,
+			.start = start,
+			.width = width,
+			.end = end,
+		};
+		start = end;
+	}
+
+	// launch threads
+	for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
+
+	// wait for threads to finish
+	for (size_t i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
+
+	return vector;
+}
+
+/**
+ *	Thread Worker for "vector_sub"
+ */
+void* vector_sub_worker(void* argv){
+	threadargs* data = (threadargs*) argv;
+
+	const int start = data->start;
+	const int end = data->end;
+
+	const double* vector_a = data->matrix;
+	const double* vector_b = data->vector;
+	double* vector = data->result;
+
+	for(int i=start; i < end; i++){
+		vector[i] = vector_a[i] - vector_b[i];
+	}
+
+	return NULL;
+}
+
+/**
+ *	Initialises a matrix to the given value.
+ */
 double* matrix_init(const double value, ssize_t n, ssize_t n2){
 	double* matrix = (double*) malloc((n*n) * sizeof(double));
 
@@ -256,14 +385,14 @@ double* matrix_init(const double value, ssize_t n, ssize_t n2){
 /**
  *	Matrix Multiply Thread Controller Process
  */
-void matrix_mul_thread(double* result, const double* matrix, const double* vector, const int n, const int nthreads){
+void matrix_mul(double* result, const double* matrix, const double* vector, const int n, const int nthreads){
 	// initialise arrays for threading
 	pthread_t thread_ids[nthreads];
 	threadargs args[nthreads];
 	
 	// get a function pointer to worker thread:
-	void* (*g_matrix_worker)(void*);
-	g_matrix_worker = &matrix_mul_worker;
+	void* (*worker)(void*);
+	worker = &matrix_mul_worker;
 	
 	int start = 0;
 	int end = 0;
@@ -283,7 +412,7 @@ void matrix_mul_thread(double* result, const double* matrix, const double* vecto
 	}
 	
 	// launch threads
-	for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, g_matrix_worker, args + i );
+	for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
 
 	// wait for threads to finish
 	for (size_t i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
@@ -317,6 +446,32 @@ void* matrix_mul_worker(void* argv){
 	}
 	
 	return NULL;
+}
+
+
+
+/**
+ * Displays given matrix.
+ */
+void display(const double* matrix, ssize_t npage) {
+	for (ssize_t y = 0; y < npage; y++) {
+		for (ssize_t x = 0; x < npage; x++) {
+			if (x > 0) printf(" ");
+			printf("%.8lf", matrix[y * npage + x]);
+		}
+
+		printf("\n");
+	}
+}
+
+/**
+ * Displays given vector.
+ */
+void display_vector(const double* vector, ssize_t npage) {
+	for (ssize_t x = 0; x < npage; x++) {
+		printf("%.8lf", vector[x]);
+		printf("\n");
+	}
 }
 
 /*
