@@ -7,6 +7,7 @@
 
 #include "pagerank.h"
 
+#define TOPTIMIAL 50
 
 // vector operations:
 double vector_norm(const double* vector_a, const double* vector_b, const ssize_t width, const ssize_t nthreads);
@@ -16,9 +17,11 @@ double vector_sumsq(const double* vector, const ssize_t width, const ssize_t nth
 void* vector_sumsq_worker(void* argv);
 
 // matrix operations:
-double* matrix_init(const double value, ssize_t n, ssize_t n2);
+double* matrix_init(const double value, ssize_t n, ssize_t nthreads);
+void* matrix_init_worker(void* argv);
 void matrix_mul(double* result, const double* matrix, const double* vector, const int n, const int nthreads);
 void* matrix_mul_worker(void* argv);
+
 
 // display:
 void display(const double* matrix, ssize_t npage);
@@ -86,8 +89,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	#endif
 
 	// declare matrix and intialise with given value.
-	double* matrix = matrix_init(add_E, npages, npages);
-	double* p_previous = matrix_init(div_page, npages, 1);
+	double* matrix = matrix_init(add_E, npages*npages, nthreads);
+	double* p_previous = matrix_init(div_page, npages, nthreads);
 	double* p_result;
 
 	// matrix index temp values:
@@ -300,6 +303,81 @@ void* vector_sumsq_worker(void* argv){
 	return NULL;
 }
 
+
+
+
+
+
+
+
+
+
+/**
+ *	Initialises a matrix to the given value.
+ */
+double* matrix_init(const double value, ssize_t n, ssize_t nthreads){
+	double* matrix = (double*) malloc((n) * sizeof(double));
+
+	if(n < TOPTIMIAL){
+		for(int i=0; i < n; i++){
+			matrix[i] = value;
+		}
+	}else{
+		// initialise arrays for threading
+		pthread_t thread_ids[nthreads];
+		threadargs args[nthreads];
+
+		// get a function pointer to worker thread:
+		void* (*worker)(void*);
+		worker = &matrix_init_worker;
+
+		// initalise ranges
+		int start = 0;
+		int end = 0;
+
+		// set arguments for worker
+		for(int id=0; id < nthreads; id++){
+			end = id == nthreads - 1 ? n : (id + 1) * (n / nthreads);
+			args[id] = (threadargs) {
+				.result = matrix,
+				.matrix = &value,
+				.start = start,
+				.width = n,
+				.end = end,
+			};
+			start = end;
+		}
+
+		// launch threads
+		for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
+
+		// wait for threads to finish
+		for (size_t i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
+	}
+
+	return matrix;
+}
+
+/**
+ *	Thread Worker for "matrix_init"
+ */
+void* matrix_init_worker(void* argv){
+	threadargs* data = (threadargs*) argv;
+
+	const int start = data->start;
+	const int end = data->end;
+
+	const double value = *(data->matrix);
+	double* matrix = data->result;
+
+	for(int i=start; i < end; i++){
+		matrix[i] = value;
+	}
+
+	return NULL;
+}
+
+
 /**
  *	Performs vector subtraction between two given vectors.  Threaded
  *		Formula: P(1) - P(0)
@@ -360,19 +438,6 @@ void* vector_sub_worker(void* argv){
 	}
 
 	return NULL;
-}
-
-/**
- *	Initialises a matrix to the given value.
- */
-double* matrix_init(const double value, ssize_t n, ssize_t n2){
-	double* matrix = (double*) malloc((n*n) * sizeof(double));
-
-	for(int i=0; i < n*n2; i++){
-		matrix[i] = value;
-	}
-
-	return matrix;
 }
 
 
