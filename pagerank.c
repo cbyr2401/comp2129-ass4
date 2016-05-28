@@ -124,7 +124,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			// go down the column putting in the 1/N, adjusted for M_hat
 			for(j = 0; j < npages; j++){
 				matrix[j * npages + i] += (div_page*dampener);
-				//matrix[j * npages + i] += add_E;
 			}
 		}
 
@@ -133,7 +132,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			// calculate 1 / |OUT(j)| for each inlink page, adjusted for M_hat
 			j = inlink->page->index;
 			matrix[i * npages + j] += ((1.0 / (double) inlink->page->noutlinks)*dampener);
-			//matrix[i * npages + j] += add_E;
 			inlink = inlink->next;
 		}
 
