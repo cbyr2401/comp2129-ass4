@@ -177,19 +177,18 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	}
 
 	// reduction algorithm:
-	printf("running reduction...\n");
 	ssize_t* map = (ssize_t*) malloc(sizeof(ssize_t)*npages);  // maps pages --> matrix_row indexes
 	ssize_t nrows = npages;
 
-	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
+	//matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
 
 	//printf("map: \n");
-	//for(int i=0; i < npages; i++){
-	//	printf("%u %zu\n", i, map[i]);
-	//}
+	for(int i=0; i < npages; i++){
+		//printf("%u %zu\n", i, map[i]);
+		map[i] = i;
+	}
 
-	printf("finished reduction.\n");
-	printf("nrows: %zu | npages: %zu\n", nrows, npages);
+	//printf("nrows: %zu | npages: %zu\n", nrows, npages);
 
 	// We now have the matrix M_hat ready to go...let's start the pagerank iterations.
 	/*
@@ -207,25 +206,24 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		printf("\n");
 	#endif
 
-	int iterations = 0;
+	//int iterations = 0;
 	while(1){
 		p_result = (double*) malloc(sizeof(double)*nrows);
 
 		matrix_mul(p_result, matrix, p_previous, npages, nrows, nthreads);
 
-		display_vector(p_result, nrows);
-
 		p_built = build_vector(p_result, map, npages);
 		//p_built = p_result;
+		display_vector(p_built, nrows);
 
 		// calculate the vector norm.  TODO: investigate if p_result can be used here.
 		norm_result = vector_norm(p_built, p_previous, npages, nthreads);
 
-		printf("--------------------------------\n");
+		/*printf("--------------------------------\n");
 		printf("p_previous %.8lf \n", p_previous[0]);
 		printf("p_built %.8lf\n", p_built[0]);
 		printf("p_result  %.8lf \n", p_result[0]);
-		printf("--------- END--------------\n");
+		printf("--------- END--------------\n");*/
 
 
 		// check for convergence
@@ -236,10 +234,10 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		free(p_previous);
 		p_previous = p_built;
 		p_result = NULL;
-		printf("iterations: %u\n", iterations++);
+		//printf("iterations: %u\n", iterations++);
 		//sleep(1);
 
-		if(iterations > 5) exit(0);
+		//if(iterations > 5) exit(0);
 
 	}
 
@@ -262,6 +260,10 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	free(p_built);
 	free(p_previous);
 	free(map);
+
+	for(int i=0; i < npages; i++){
+		free(in_list[i]);
+	}
 
 }
 
@@ -366,7 +368,6 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_ro
 	}
 
 	ssize_t num_rows = width - end_del;
-	printf("num_rows: %zu \n", num_rows);
 	int next = 0;
 
 	// columns before...
@@ -636,7 +637,6 @@ void matrix_mul(double* result, const double* matrix, const double* vector, cons
 	// set arguments for worker
 	for(int id=0; id < nthreads; id++){
 		end = id == nthreads - 1 ? height : (id + 1) * (height / nthreads);
-		printf("start: %i | end: %i\n", start, end);
 		args[id] = (threadargs) {
 			.result = result,
 			.matrix = matrix,
@@ -709,9 +709,10 @@ void display(const double* matrix, ssize_t npage) {
  */
 void display_vector(const double* vector, ssize_t npage) {
 	for (ssize_t x = 0; x < npage; x++) {
-		printf("%.8lf", vector[x]);
+		printf("%.24lf", vector[x]);
 		printf("\n");
 	}
+	printf("\n");
 }
 //#endif
 
