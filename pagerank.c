@@ -24,10 +24,13 @@ void* matrix_mul_worker(void* argv);
 
 // reduction operations:
 double* matrix_reduce(double* matrix, ssize_t* map, ssize_t* nrows, ssize_t npages);
-double sum_row(const double* matrix, const int row, const ssize_t width);
-ssize_t compare_sum(const double* sums, const double csum, const int end);
+double sum_row(const double* matrix, const int row, const int width);
+int compare_sum(const double* sums, const double csum, const int end);
 ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_rows, const ssize_t npages, const int end_del);
 double* build_vector(const double* vector, const ssize_t* map, const ssize_t npages);
+int list_compare(const int* list_a, const int* list_b);
+void* parallel_qsort(void* argv);
+int sortcmp(const void * a, const void * b);
 
 //#ifdef EBUG
 // display:
@@ -45,9 +48,14 @@ typedef struct {
 	int end;
 } threadargs;
 
+// qsort and other
+typedef struct{
+	int* list;
+	int size;
+} array;
+
 
 void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double dampener) {
-
 	/*
 		TODO
 
@@ -88,11 +96,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	// calculate the 1/N value:
 	const double div_page = (1.0 / (double)npages);
-
-	#ifdef EBUG
-		printf("add_E: %.8lf\n", add_E);
-		printf("div_page: %.8lf\n", div_page);
-	#endif
+	const double one_on_N = div_page*dampener;
 
 	// declare matrix and intialise with given value.
 	double* matrix = matrix_init(add_E, npages*npages, nthreads);
@@ -114,6 +118,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	// list of keys:
 	char* keys[npages];
+	ssize_t* in_list[npages];
+	ssize_t inlink_counter = 1;
 
 	/*
 		Algorithm: Building Matrix M and M_hat
@@ -122,6 +128,11 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		3)  We can fill in the row using the inlinks of i, so that (i,j)-th entry is 1/|OUT(j)|
 		4)  The matrix is initialised as M_hat.
 	*/
+
+	for(int i=0; i < npages; i++){
+		in_list[i] = (ssize_t*) malloc(sizeof(ssize_t));
+	}
+
 	while(current != NULL){
 		cpage = current->page;
 		i = cpage->index;
@@ -129,23 +140,30 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		// add name to list of keys
 		keys[i] = cpage->name;
 
-		keys[0] = keys[0] + 0;
-
-
 		if(cpage->noutlinks == 0){
 			// go down the column putting in the 1/N, adjusted for M_hat
 			for(j = 0; j < npages; j++){
-				matrix[j * npages + i] += (div_page*dampener);
+				matrix[j * npages + i] += one_on_N;
 			}
 		}
 
 		inlink = cpage->inlinks;
+
 		while(inlink != NULL){
 			// calculate 1 / |OUT(j)| for each inlink page, adjusted for M_hat
 			j = inlink->page->index;
+
+			in_list[i] = (ssize_t*) realloc(in_list[i], sizeof(ssize_t)*(inlink_counter+1));
+			in_list[i][inlink_counter++] = j;
+
 			matrix[i * npages + j] += ((1.0 / (double) inlink->page->noutlinks)*dampener);
 			inlink = inlink->next;
 		}
+
+		in_list[i][0] = -1;
+		qsort(in_list[i], inlink_counter, sizeof(ssize_t), sortcmp);
+		in_list[i][0] = inlink_counter-1;
+		inlink_counter = 1;
 
 		// move to next page
 		current = current->next;
@@ -159,14 +177,19 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	}
 
 	// reduction algorithm:
-	//printf("running reduction\n");
-	//ssize_t* map = (ssize_t*) malloc(sizeof(ssize_t)*npages);  // maps pages --> matrix_row indexes
+	printf("running reduction...\n");
+	ssize_t* map = (ssize_t*) malloc(sizeof(ssize_t)*npages);  // maps pages --> matrix_row indexes
 	ssize_t nrows = npages;
 
-	//matrix = matrix_reduce(matrix, map, &nrows, npages);
+	matrix = matrix_reduce(matrix, map, &nrows, npages);
 
-	//printf("finished reduction\n");
-	//printf("nrows: %zu | npages: %zu\n", nrows, npages);
+	//printf("map: \n");
+	//for(int i=0; i < npages; i++){
+	//	printf("%u %zu\n", i, map[i]);
+	//}
+
+	printf("finished reduction.\n");
+	printf("nrows: %zu | npages: %zu\n", nrows, npages);
 
 	// We now have the matrix M_hat ready to go...let's start the pagerank iterations.
 	/*
@@ -184,33 +207,35 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		printf("\n");
 	#endif
 
-	//int iterations = 0;
+	int iterations = 0;
 	while(1){
 		p_result = (double*) malloc(sizeof(double)*nrows);
 
 		matrix_mul(p_result, matrix, p_previous, npages, nrows, nthreads);
-		p_built = p_result;
-		//printf("build_vector started...");
-		//p_built = build_vector(p_result, map, npages);
-		//printf(" finished \n");
 
-		#ifdef EBUG
-			display_vector(p_built, nrows);
-			printf("\n");
-		#endif
+		p_built = build_vector(p_result, map, npages);
+		//p_built = p_result;
 
 		// calculate the vector norm.  TODO: investigate if p_result can be used here.
 		norm_result = vector_norm(p_built, p_previous, npages, nthreads);
+
+		printf("--------------------------------\n");
+		printf("p_previous %.8lf \n", p_previous[0]);
+		printf("p_built %.8lf\n", p_built[0]);
+		printf("p_result  %.8lf \n", p_result[0]);
+		printf("--------- END--------------\n");
+
 
 		// check for convergence
 		if(norm_result <= EPSILON) break;
 
 		// set up for next iteration...
-		//free(p_result);
+		free(p_result);
 		free(p_previous);
 		p_previous = p_built;
 		p_result = NULL;
-		//printf("iterations: %u\n", iterations++);
+		printf("iterations: %u\n", iterations++);
+		sleep(1);
 
 	}
 
@@ -224,15 +249,15 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	// display results...
 	for(i=0; i < npages; i++){
-		printf("%s %.8lf\n", keys[i], p_result[i]);  //p_result[map[i]]);
+		printf("%s %.8lf\n", keys[i], p_result[i]); //p_result[map[i]]);
 	}
 
 	// free everything...
 	free(matrix);
 	free(p_result);
-	//free(p_built);
+	free(p_built);
 	free(p_previous);
-	//free(map);
+	free(map);
 
 }
 
@@ -250,6 +275,32 @@ double* build_vector(const double* vector, const ssize_t* map, const ssize_t npa
 	return result;
 }
 
+/**
+ *	Description:	Compare function for qsort
+ *	Return:			difference between two ints
+ * 	Source:			http://www.tutorialspoint.com/c_standard_library/c_function_qsort.htm
+ */
+int sortcmp(const void * a, const void * b){
+	return ((int)( *(ssize_t*)a - *(ssize_t*)b ));
+}
+
+
+/**
+ *	List compare function
+ */
+int list_compare(const int* list_a, const int* list_b){
+	// check sizes:
+	if(list_a[0] == list_b[0]){
+		// same size, continue:
+		for(int i=1; i < list_a[0]; i++){
+			if(list_a[i] != list_b[i]) return -1;
+		}
+		return 0;
+	}else{
+		return -1;
+	}
+}
+
 
 
 /**
@@ -260,7 +311,7 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t* nrows, ssize_t npag
 	int next_del = 0;
 	int isSame = -1;
 
-	double sum;
+	double sum = 0.0;
 	double* sums = (double*) malloc(sizeof(double)*npages);
 
 	ssize_t* delete_rows = (ssize_t*) malloc(sizeof(ssize_t)*(npages-1));  // rows to delete in matrix.
@@ -268,8 +319,9 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t* nrows, ssize_t npag
 
 	for(int row_id = 0; row_id < npages; row_id++){
 		// We already have the maxtrix built, this will form a rectangular matrix, with less rows than the original one.
-		sum = sum_row(matrix, row_id, npages);
-		isSame = compare_sum(sums, sum, next_sum);
+		//sum = sum_row(matrix, row_id, npages);
+		isSame = row_compare(matrix, matrix[row_id], row_id, next_sum);
+
 		if(isSame != -1){
 			delete_rows[next_del++] = row_id;
 			map[row_id] = isSame;
@@ -279,7 +331,7 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t* nrows, ssize_t npag
 		}
 	}
 
-	double* result = (double*)malloc(sizeof(double)*npages*npages);
+	double* result = (double*)malloc(sizeof(double)*(npages*next_del));
 
 	*nrows = build_matrix(result, matrix, delete_rows, npages, next_del);  // returns number of rows, puts result in first arg.
 
@@ -295,13 +347,13 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t* nrows, ssize_t npag
 /**
  *	Function to sum all the values in a particular row of a given matrix.
  */
-double sum_row(const double* matrix, const int row, const ssize_t width){
+double sum_row(const double* matrix, const int row, const int width){
 	double sum = 0.0;
 
-	for(ssize_t i=0; i < width; i++){
+	for(int i=0; i < width; i++){
 		sum += matrix[row * width + i];
 	}
-
+	//printf("sum: %f\n", sum);
 	return sum;
 }
 
@@ -309,8 +361,10 @@ double sum_row(const double* matrix, const int row, const ssize_t width){
 /**
  *	Function to compare the given sum, to a list of sums.
  */
-ssize_t compare_sum(const double* sums, const double csum, const int end){
+int compare_sum(const double* sums, const double csum, const int end){
+	//printf("begin sums-----------------------\n");
 	for(ssize_t i=0; i < end; i++){
+		//printf("suma: %.811f  sumb: %.81lf \n", sums[i], csum);
 		if(sums[i] == csum){
 			return i;
 		}
@@ -328,7 +382,7 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_ro
 		return width;
 	}
 
-	ssize_t num_rows = width - end_del;
+	ssize_t num_rows = width - (end_del - 1);
 	int next = 0;
 
 	// columns before...
@@ -344,6 +398,7 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_ro
 			result[(row) * width + (col)] = matrix[(row+offset) * (width) + (col)];
 		}
 	}
+
 	// return the new, reduced number of rows...
 	return num_rows;
 
@@ -597,6 +652,7 @@ void matrix_mul(double* result, const double* matrix, const double* vector, cons
 	// set arguments for worker
 	for(int id=0; id < nthreads; id++){
 		end = id == nthreads - 1 ? height : (id + 1) * (height / nthreads);
+		printf("start: %i | end: %i\n", start, end);
 		args[id] = (threadargs) {
 			.result = result,
 			.matrix = matrix,
