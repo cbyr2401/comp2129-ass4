@@ -24,8 +24,6 @@ void* matrix_mul_worker(void* argv);
 
 // reduction operations:
 double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* nrows, ssize_t npages);
-double sum_row(const double* matrix, const int row, const int width);
-int compare_sum(const double* sums, const double csum, const int end);
 ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_rows, const ssize_t npages, const int end_del);
 double* build_vector(const double* vector, const ssize_t* map, const ssize_t npages);
 int listcmp(const ssize_t* list_a, const ssize_t* list_b);
@@ -290,6 +288,7 @@ int sortcmp(const void * a, const void * b){
 	return ((int)( *(ssize_t*)a - *(ssize_t*)b ));
 }
 
+
 /**
  * 	Compares lists and returns the row_id of the FIRST list that is the same or -1.
  *		We only want to go upto the ones that we have seen.
@@ -300,7 +299,6 @@ int list_compare(ssize_t** list, const int row){
 	}
 	return -1;
 }
-
 
 
 /**
@@ -355,36 +353,6 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* 
 	}
 
 	return result;
-}
-
-
-
-/**
- *	Function to sum all the values in a particular row of a given matrix.
- */
-double sum_row(const double* matrix, const int row, const int width){
-	double sum = 0.0;
-
-	for(int i=0; i < width; i++){
-		sum += matrix[row * width + i];
-	}
-	//printf("sum: %f\n", sum);
-	return sum;
-}
-
-
-/**
- *	Function to compare the given sum, to a list of sums.
- */
-int compare_sum(const double* sums, const double csum, const int end){
-	//printf("begin sums-----------------------\n");
-	for(ssize_t i=0; i < end; i++){
-		//printf("suma: %.811f  sumb: %.81lf \n", sums[i], csum);
-		if(sums[i] == csum){
-			return i;
-		}
-	}
-	return -1;
 }
 
 
