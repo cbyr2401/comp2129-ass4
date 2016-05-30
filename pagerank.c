@@ -152,6 +152,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		while(inlink != NULL){
 			// calculate 1 / |OUT(j)| for each inlink page, adjusted for M_hat
 			j = inlink->page->index;
+			//printf("id: %zu \n", j);
 
 			in_list[i] = (ssize_t*) realloc(in_list[i], sizeof(ssize_t)*(inlink_counter+1));
 			in_list[i][inlink_counter++] = j;
@@ -162,6 +163,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 		in_list[i][0] = -1;
 		qsort(in_list[i], inlink_counter, sizeof(ssize_t), sortcmp);
+		//printf("inlist counter: %zu\n", inlink_counter);
 		in_list[i][0] = inlink_counter-1;
 		inlink_counter = 1;
 
@@ -180,13 +182,15 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	ssize_t* map = (ssize_t*) malloc(sizeof(ssize_t)*npages);  // maps pages --> matrix_row indexes
 	ssize_t nrows = npages;
 
-	//matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
+	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
 
 	//printf("map: \n");
 	for(int i=0; i < npages; i++){
-		//printf("%u %zu\n", i, map[i]);
-		map[i] = i;
+		printf("%u %zu\n", i, map[i]);
+		//map[i] = i;
 	}
+
+	return;
 
 	//printf("nrows: %zu | npages: %zu\n", nrows, npages);
 
@@ -296,8 +300,9 @@ int sortcmp(const void * a, const void * b){
  *		We only want to go upto the ones that we have seen.
  */
 int list_compare(ssize_t** list, const int row){
-	for(int i=0; i < row; i++){
-		if(listcmp(list[row], list[i]) != -1) return i;
+	int i;
+	for(i=0; i < row; i++){
+		if(listcmp(list[row], list[i]) == 0) return i;
 	}
 	return -1;
 }
@@ -310,7 +315,7 @@ int listcmp(const ssize_t* list_a, const ssize_t* list_b){
 	// check sizes:
 	if(list_a[0] == list_b[0]){
 		// same size, continue:
-		for(int i=1; i < list_a[0]; i++){
+		for(int i=1; i <= list_a[0]; i++){
 			if(list_a[i] != list_b[i]) return -1;
 		}
 		return 0;
@@ -343,9 +348,10 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* 
 	}
 
 	double* result = (double*)malloc(sizeof(double)*(npages*(npages-next_del)));
-	printf("next_del: %i\n", next_del);
+
 
 	*nrows = build_matrix(result, matrix, delete_rows, npages, next_del);  // returns number of rows, puts result in first arg.
+	printf("next_del: %i | nrows: %zu \n", next_del, *nrows);
 
 	free(matrix);
 	free(delete_rows);
