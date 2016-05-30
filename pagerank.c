@@ -29,6 +29,7 @@ double* build_vector(const double* vector, const ssize_t* map, const ssize_t npa
 int listcmp(const ssize_t* list_a, const ssize_t* list_b);
 int list_compare(ssize_t** list, const int row);
 int sortcmp(const void * a, const void * b);
+double sum_row(const double* matrix, const int row, const ssize_t width);
 
 
 
@@ -184,15 +185,17 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
 
-	//printf("map: \n");
+	printf("map: \n");
 	for(int i=0; i < npages; i++){
 		printf("%u %zu\n", i, map[i]);
 		//map[i] = i;
 	}
 
-	return;
 
-	//printf("nrows: %zu | npages: %zu\n", nrows, npages);
+
+	printf("nrows: %zu | npages: %zu\n", nrows, npages);
+
+	return;
 
 	// We now have the matrix M_hat ready to go...let's start the pagerank iterations.
 	/*
@@ -210,7 +213,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		printf("\n");
 	#endif
 
-	//int iterations = 0;
+	int iterations = 0;
 	while(1){
 		p_result = (double*) malloc(sizeof(double)*nrows);
 
@@ -218,16 +221,16 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 		p_built = build_vector(p_result, map, npages);
 		//p_built = p_result;
-		display_vector(p_built, nrows);
+		//display_vector(p_built, nrows);
 
 		// calculate the vector norm.  TODO: investigate if p_result can be used here.
 		norm_result = vector_norm(p_built, p_previous, npages, nthreads);
 
-		/*printf("--------------------------------\n");
+		printf("--------------------------------\n");
 		printf("p_previous %.8lf \n", p_previous[0]);
 		printf("p_built %.8lf\n", p_built[0]);
 		printf("p_result  %.8lf \n", p_result[0]);
-		printf("--------- END--------------\n");*/
+		printf("--------- END--------------\n");
 
 
 		// check for convergence
@@ -241,7 +244,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		//printf("iterations: %u\n", iterations++);
 		//sleep(1);
 
-		//if(iterations > 5) exit(0);
+		if(iterations > 5) exit(0);
 
 	}
 
@@ -315,7 +318,7 @@ int listcmp(const ssize_t* list_a, const ssize_t* list_b){
 	// check sizes:
 	if(list_a[0] == list_b[0]){
 		// same size, continue:
-		for(int i=1; i <= list_a[0]; i++){
+		for(int i=1; i < list_a[0]+1; i++){
 			if(list_a[i] != list_b[i]) return -1;
 		}
 		return 0;
@@ -324,26 +327,77 @@ int listcmp(const ssize_t* list_a, const ssize_t* list_b){
 	}
 }
 
+/**
+ *	Row compare function
+ */
+int row_compare(const double* matrix, const ssize_t row, const ssize_t width){
+	int i = -1;
+	int rtn = -1;
+	for(i = 0; i < row; i++){
+		for(int j = 0; j < width; j++){
+			if(matrix[row * width + j] != matrix[i * width + j]){
+				rtn=-1;
+				break;
+			}else{
+				rtn = i;
+			}
+		}
+	}
+	return rtn;
+}
+
+
+/**
+ *	Function to sum all the values in a particular row of a given matrix.
+ */
+double sum_row(const double* matrix, const int row, const ssize_t width){
+	double sum = 0.0;
+
+	for(ssize_t i=0; i < width; i++){
+		sum += matrix[row * width + i];
+	}
+
+	return sum;
+}
+
+
+/**
+ *	Function to compare the given sum, to a list of sums.
+ */
+ssize_t compare_sum(const double* sums, const double csum, const int end){
+	for(ssize_t i=0; i < end; i++){
+		if( (sums[i]- csum) < 0.00000000000000005){
+			return i;
+		}
+	}
+	return -1;
+}
 
 
 /**
  * 	Reduce the matrix size
  */
 double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* nrows, ssize_t npages){
+	int next_sum = 0;
 	int next_del = 0;
 	int isSame = -1;
 
+	long double sum;
+	double* sums = (double*) malloc(sizeof(double)*npages);
 	ssize_t* delete_rows = (ssize_t*) malloc(sizeof(ssize_t)*(npages-1));  // rows to delete in matrix.
 
 	for(int row_id = 0; row_id < npages; row_id++){
 		// We already have the maxtrix built, this will form a rectangular matrix, with less rows than the original one.
-		isSame = list_compare(in_list, row_id);
+		sum = sum_row(matrix, row_id, npages);
+		//isSame = list_compare(in_list, row_id);
+		isSame = compare_sum(sums, sum, next_sum);
 
 		if(isSame != -1){
 			delete_rows[next_del++] = row_id;
 			map[row_id] = isSame;
 		}else{
 			map[row_id] = row_id-next_del;
+			sums[next_sum++] = sum;
 		}
 	}
 
@@ -355,6 +409,7 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* 
 
 	free(matrix);
 	free(delete_rows);
+	free(sums);
 
 	for(int i=0; i < npages; i++){
 		free(in_list[i]);
