@@ -184,21 +184,25 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	ssize_t* map = (ssize_t*) malloc(sizeof(ssize_t)*npages);  // maps pages --> matrix_row indexes
 	ssize_t nrows = npages;
 
-	display(matrix, npages);
+	#ifdef EBUG
+		display(matrix, npages);
+	#endif
 
 	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
 
-	display_matrix(matrix, nrows, npages);
+	#ifdef EBUG
+		display_matrix(matrix, nrows, npages);
+	#endif
 
-	printf("map: \n");
-	for(int i=0; i < npages; i++){
-		printf("%u %zu\n", i, map[i]);
+	//printf("map: \n");
+	//for(int i=0; i < npages; i++){
+	//	printf("%u %zu\n", i, map[i]);
 		//map[i] = i;
-	}
+	//}
 
 
 
-	printf("nrows: %zu | npages: %zu\n", nrows, npages);
+	//printf("nrows: %zu | npages: %zu\n", nrows, npages);
 
 	// We now have the matrix M_hat ready to go...let's start the pagerank iterations.
 	/*
@@ -222,7 +226,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 		matrix_mul(p_result, matrix, p_previous, npages, nrows, nthreads);
 
-		printf("matrix mul completed!\n");
+		//printf("matrix mul completed!\n");
 
 		p_built = build_vector(p_result, map, npages);
 		//p_built = p_result;
@@ -231,11 +235,13 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		// calculate the vector norm.  TODO: investigate if p_result can be used here.
 		norm_result = vector_norm(p_built, p_previous, npages, nthreads);
 
-		printf("--------------------------------\n");
-		printf("p_previous %.8lf \n", p_previous[0]);
-		printf("p_built %.8lf\n", p_built[0]);
-		printf("p_result  %.8lf \n", p_result[0]);
-		printf("--------- END--------------\n");
+		#ifdef EBUG
+			printf("--------------------------------\n");
+			printf("p_previous %.8lf \n", p_previous[0]);
+			printf("p_built %.8lf\n", p_built[0]);
+			printf("p_result  %.8lf \n", p_result[0]);
+			printf("--------- END--------------\n");
+		#endif
 
 
 		// check for convergence
@@ -376,26 +382,27 @@ ssize_t compare_sum(const double* sums, const double csum, const int end){
  * 	Reduce the matrix size
  */
 double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* nrows, ssize_t npages){
-	int next_sum = 0;
+	//int next_sum = 0;
 	int next_del = 0;
 	int isSame = -1;
+	ssize_t row_count = 0;
 
-	long double sum;
-	double* sums = (double*) malloc(sizeof(double)*npages);
+	//long double sum;
+	//double* sums = (double*) malloc(sizeof(double)*npages);
 	ssize_t* delete_rows = (ssize_t*) malloc(sizeof(ssize_t)*(npages-1));  // rows to delete in matrix.
 
 	for(int row_id = 0; row_id < npages; row_id++){
 		// We already have the maxtrix built, this will form a rectangular matrix, with less rows than the original one.
-		sum = sum_row(matrix, row_id, npages);
+		//sum = sum_row(matrix, row_id, npages);
 		isSame = list_compare(in_list, row_id);
 		//isSame = compare_sum(sums, sum, next_sum);
 
 		if(isSame != -1){
 			delete_rows[next_del++] = row_id;
-			map[row_id] = isSame;
+			map[row_id] = map[isSame];
 		}else{
-			map[row_id] = row_id-next_del;
-			sums[next_sum++] = sum;
+			map[row_id] = row_count++;
+			//sums[next_sum++] = sum;
 		}
 	}
 
@@ -403,11 +410,11 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* 
 
 
 	*nrows = build_matrix(result, matrix, delete_rows, npages, next_del);  // returns number of rows, puts result in first arg.
-	printf("next_del: %i | nrows: %zu \n", next_del, *nrows);
+	//printf("next_del: %i | nrows: %zu \n", next_del, *nrows);
 
 	free(matrix);
 	free(delete_rows);
-	free(sums);
+	//free(sums);
 
 	for(int i=0; i < npages; i++){
 		free(in_list[i]);
@@ -429,21 +436,12 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_ro
 	ssize_t num_rows = width - end_del;
 	int next = 0;
 
-	printf("num_rows: %zu | end_del: %i \n", num_rows, end_del);
 	// columns before...
 	int offset = 0;
 
-	printf("delete_row[]: ");
-	for(int i=0; i < end_del; i++){
-		printf("%zu ", del_rows[i]);
-	}
-	printf("\n");
-
 	for(ssize_t row = 0; row < num_rows; row++){
-		//printf("next delete: %zu \n", del_rows[next]);
 		if( next < end_del && (row+offset) == del_rows[next]){
 			// when we hit the row that we want to remove, increment the offset to skip that row.
-			printf("removing row...%zu  \n", row);
 			offset++;
 			next++;
 			row--;
