@@ -388,7 +388,6 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, c
 	int c_offset = 0;
 	int r_next = 0;
 	int c_next = 0;
-	double sum= 0.0;
 
 	printf("reducing rows and columns\n");
 	for(ssize_t row = 0; row < num_rows; row++){
@@ -399,15 +398,19 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, c
 			if(r_next >= end_del) r_next = 0;  // no more elements to search through.
 			row--;
 		}else{
-			for(int col = 0; col < (width - c_offset); col++){
-				if(col == del_rows[c_next]){
+			for(int col = 0; col < num_rows; col++){
+				if(del_rows[c_next] == (col+c_offset)){
+					// skip
 					c_offset++;
+					printf("offseting col... %i\n", col+c_offset);
 					c_next++;
-					if(c_next >= end_del) c_next = 0;  // no more elements to search through.
-
+					if(r_next >= end_del) c_next = 0;  // no more elements to search through.
+					col--;
+				}else{
+					result[(row) * (width - r_offset) + (col)] = matrix[(row+r_offset) * (width) + (col+c_offset)];
 				}
-				result[(row) * (width - c_offset) + (col)] = matrix[(row+r_offset) * (width) + (col+c_offset)];
 			}
+			c_offset = 0;
 		}
 	}
 
@@ -416,7 +419,7 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, c
 
 	printf("multiplying rows and columns\n");
 	// multiply columns by respective values from col_mul:
-	ssize_t master;
+	/*ssize_t master;
 	ssize_t slave;
 	int counter = 0;
 
@@ -429,7 +432,7 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, c
 		}
 		counter++;
 	}
-	display(result, num_rows);
+	display(result, num_rows);*/
 	// return the new, reduced number of rows...
 	return num_rows;
 
