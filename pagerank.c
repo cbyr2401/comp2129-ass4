@@ -383,35 +383,23 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, c
 	ssize_t num_rows = width - end_del;
 
 
-	// columns before...
-	int r_offset = 0;
-	int c_offset = 0;
-	int r_next = 0;
-	int c_next = 0;
+	int next = 0;
 
-	printf("reducing rows and columns\n");
+	// columns before...
+	int offset = 0;
+
 	for(ssize_t row = 0; row < num_rows; row++){
-		if( (row+r_offset) == del_rows[r_next]){
+		if( next < end_del && (row+offset) == del_rows[next]){
 			// when we hit the row that we want to remove, increment the offset to skip that row.
-			r_offset++;
-			r_next++;
-			if(r_next >= end_del) r_next = 0;  // no more elements to search through.
+			offset++;
+			next++;
 			row--;
 		}else{
-			for(int col = 0; col < num_rows; col++){
-				if(del_rows[c_next] == (col+c_offset)){
-					// skip
-					c_offset++;
-					printf("offseting col... %i\n", col+c_offset);
-					c_next++;
-					if(r_next >= end_del) c_next = 0;  // no more elements to search through.
-					col--;
-				}else{
-					result[(row) * (width - r_offset) + (col)] = matrix[(row+r_offset) * (width) + (col+c_offset)];
-				}
+			for(int col = 0; col < width; col++){
+				result[(row) * width + (col)] = matrix[(row+offset) * (width) + (col)];
 			}
-			c_offset = 0;
 		}
+
 	}
 
 	display(matrix, width);
