@@ -253,8 +253,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	}
 
-	//printf("WE ESCAPED!!!\n");
-
 	#ifdef EBUG
 		display_vector(p_result, npages);
 		printf("\n");
@@ -272,11 +270,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	free(p_built);
 	free(p_previous);
 	free(map);
-
-	for(int i=0; i < npages; i++){
-		free(in_list[i]);
-	}
-
 }
 
 
@@ -454,7 +447,6 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_ro
 			offset++;
 			next++;
 			row--;
-			printf("row: %zu   ||  next:  %i  || offset:  %i \n", row, next, offset);
 		}else{
 			for(int col = 0; col < width; col++){
 				result[(row) * width + (col)] = matrix[(row+offset) * (width) + (col)];
