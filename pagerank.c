@@ -24,7 +24,7 @@ void* matrix_mul_worker(void* argv);
 
 // reduction operations:
 double* matrix_reduce(double* matrix, ssize_t* map, double* column_multiple, ssize_t** in_list, ssize_t* nrows, ssize_t npages);
-ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, const ssize_t* del_rows, const ssize_t width, const int end_del);
+double* build_matrix(const double* matrix, const ssize_t width, const ssize_t* map, const ssize_t* del, const int numdel, ssize_t* new_rows);
 double* build_vector(const double* vector, const ssize_t* map, const ssize_t npages);
 int list_compare(ssize_t** list, const int row);
 int sortcmp(const void * a, const void * b);
@@ -355,38 +355,115 @@ double* matrix_reduce(double* matrix, ssize_t* map, double* column_multiple, ssi
 		column_multiple[i] = counter;
 	}*/
 
-	double* result = (double*)malloc(sizeof(double)*(npages*(npages-next_del)));
+	//double* result = (double*)malloc(sizeof(double)*(npages*(npages-next_del)));
 
+	double* result = build_matrix(matrix, npages, map, delete_rows, next_del, nrows);  // returns number of rows, puts result in first arg.
 
-	*nrows = build_matrix(result, matrix, map, delete_rows, npages, next_del);  // returns number of rows, puts result in first arg.
-
+	// free the old matrix
 	free(matrix);
+
+	// free data structures used for calculation new matrix
 	free(delete_rows);
 
+	// free IN set lists
 	for(int i=0; i < npages; i++){
 		free(in_list[i]);
 	}
-
+	// return new matrix
 	return result;
 }
+
+void add_columns(double* result, const ssize_t rwidth, const ssize_t rcol, const double* matrix, const ssize_t mcol, const ssize_t mwidth){
+	for(ssize_t rows = 0; rows < rwidth; rows++){
+		result[rows * rwidth + rcol] += matrix[rows * mwidth + mcol];
+	}
+}
+
+
 
 
 /**
  *	Function to build a new matrix, removing the rows that are not wanted (given in an array).
  */
-ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, const ssize_t* del_rows, const ssize_t width, const int end_del){
-	if(end_del == 0){
+double* build_matrix(const double* matrix, const ssize_t width, const ssize_t* map, const ssize_t* del, const int numdel, ssize_t* new_rows){
+	//if(numdel == 0){
 		// no reduction acheived... this is worst case run time.
-		return width;
+	//	return matrix;
+	//}
+
+	// set new number of rows
+	const ssize_t nrows = width - numdel;
+
+	// allocate memory for new matrix:
+	double* result = (double*) calloc(sizeof(double), nrows*nrows);
+
+
+
+	/*
+		Alogirthm: Matrix reduction
+		1)  Using del[], add all the columns that are the same together.
+		2)  Using del[], remove the extra rows from the result matrix
+		3) 	Resize the result matrix using realloc
+		4)  Return.
+	*/
+
+	int m_id = 0;
+	int n_id = 0;
+	int offset = 0;
+	int did = 0;
+	// eliminate rows:
+	for(int row=0; row < nrows; row++){
+		// get the column that is to be deleted, with id from old matrix
+		m_id = del[did];
+		// get which column in the new matrix the results should be added to
+		//n_id = map[m_id];
+
+		if(row == m_id){
+			offset++;
+			row--;
+			if(did < numdel) did++;
+		}
+
+		// now add the values in the old matrix to the new one.
+		for(int col=0; col < width; col++){
+			result[row * nrows + col] = matrix[(row+offset) * width + col];
+		}
+
+		// move to the next column to be deleted...
 	}
 
-	ssize_t num_rows = width - end_del;
+	display(result, width);
+	exit(0);
 
+	// go through the whole map and add the columns that are the same:
+	for(int did=0; did < numdel; did++){
+		// get the column that is to be deleted, with id from old matrix
+		m_id = del[did];
+		// get which column in the new matrix the results should be added to
+		n_id = map[m_id];
 
-	int next = 0;
+		// now add the values in the old matrix to the new one.
+		for(int row=0; row < width; row++){
+			result[map[row] * nrows + n_id] += matrix[row * width + m_id];
+		}
+
+		// move to the next column to be deleted...
+	}
+
+	display(result, width);
+
+	// shrink the memory of result
+	//result = realloc(result, sizeof(double)*nrows*nrows);
+
+	display(result, nrows);
+	exit(0);
+
+	/*
+
 
 	// columns before...
 	int offset = 0;
+	int next = 0;
 
 	for(ssize_t row = 0; row < num_rows; row++){
 		if( next < end_del && (row+offset) == del_rows[next]){
@@ -407,6 +484,7 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, c
 
 	printf("multiplying rows and columns\n");
 	// multiply columns by respective values from col_mul:
+	*/
 	/*ssize_t master;
 	ssize_t slave;
 	int counter = 0;
@@ -422,8 +500,12 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, c
 	}
 	display(result, num_rows);*/
 	// return the new, reduced number of rows...
-	return num_rows;
 
+
+	//set values that are leaving the function...
+	*new_rows = nrows;
+
+	return result;
 }
 
 
