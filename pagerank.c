@@ -23,8 +23,8 @@ void matrix_mul(double* result, const double* matrix, const double* vector, cons
 void* matrix_mul_worker(void* argv);
 
 // reduction operations:
-double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* nrows, ssize_t npages);
-ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_rows, const ssize_t npages, const int end_del);
+double* matrix_reduce(double* matrix, ssize_t* map, double* column_multiple, ssize_t** in_list, ssize_t* nrows, ssize_t npages);
+ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, const ssize_t* del_rows, const ssize_t width, const int end_del);
 double* build_vector(const double* vector, const ssize_t* map, const ssize_t npages);
 int list_compare(ssize_t** list, const int row);
 int sortcmp(const void * a, const void * b);
@@ -100,7 +100,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	// declare matrix and intialise with given value.
 	double* matrix = matrix_init(add_E, npages*npages, nthreads);
-	double* p_previous = matrix_init(div_page, npages, nthreads);
+	double* p_previous = NULL;
 	double* p_result = NULL;
 	double* p_built = NULL;
 
@@ -171,27 +171,29 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	// reduction algorithm:
 	ssize_t* map = (ssize_t*) malloc(sizeof(ssize_t)*npages);  // maps pages --> matrix_row indexes
+	double* column_multiple = (double*) malloc(sizeof(double)*npages);
 	ssize_t nrows = npages;
 
-	#ifdef EBUG
+	//#ifdef EBUG
 		display(matrix, npages);
-	#endif
+	//#endif
 
-	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
+	printf("matrix reduce\n");
 
-	#ifdef EBUG
-		display_matrix(matrix, nrows, npages);
-	#endif
+	matrix = matrix_reduce(matrix, map, column_multiple, in_list, &nrows, npages);
+
+	//#ifdef EBUG
+		display_matrix(matrix, nrows, nrows);
+	//#endif
 
 	//printf("map: \n");
 	//for(int i=0; i < npages; i++){
-	//	printf("%u %zu\n", i, map[i]);
+	//	printf("column: %u %zu\n", i, column_multiple[i]);
 		//map[i] = i;
 	//}
 
 
-
-	//printf("nrows: %zu | npages: %zu\n", nrows, npages);
+	printf("nrows: %zu | npages: %zu\n", nrows, npages);
 
 	// We now have the matrix M_hat ready to go...let's start the pagerank iterations.
 	/*
@@ -209,20 +211,21 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		printf("\n");
 	#endif
 
+	p_previous = matrix_init(div_page, nrows, nthreads);
 	int iterations = 0;
 	while(1){
 		p_result = (double*) malloc(sizeof(double)*nrows);
 
-		matrix_mul(p_result, matrix, p_previous, npages, nrows, nthreads);
+		matrix_mul(p_result, matrix, p_previous, nrows, nrows, nthreads);
 
 		//printf("matrix mul completed!\n");
 
-		p_built = build_vector(p_result, map, npages);
-		//p_built = p_result;
-		//display_vector(p_built, nrows);
+		//p_built = build_vector(p_result, map, npages);
+		p_built = p_result;
+		display_vector(p_built, nrows);
 
 		// calculate the vector norm.  TODO: investigate if p_result can be used here.
-		norm_result = vector_norm(p_built, p_previous, npages, nthreads);
+		norm_result = vector_norm(p_built, p_previous, nrows, nthreads);
 
 		#ifdef EBUG
 			printf("--------------------------------\n");
@@ -237,14 +240,14 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		if(norm_result <= EPSILON) break;
 
 		// set up for next iteration...
-		free(p_result);
+		//free(p_result);
 		free(p_previous);
 		p_previous = p_built;
 		p_result = NULL;
-		//printf("iterations: %u\n", iterations++);
-		//sleep(1);
+		printf("iterations: %u\n", iterations++);
+		//sleep(5);
 
-		if(iterations > 5) exit(0);
+		if(iterations > 50) exit(0);
 
 	}
 
@@ -256,13 +259,13 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	// display results...
 	for(i=0; i < npages; i++){
-		printf("%s %.8lf\n", keys[i], p_result[map[i]]); //p_result[map[i]]);
+		printf("%s %.8lf\n", keys[i], p_result[map[i]] / column_multiple[i]); //p_result[map[i]]);
 	}
 
 	// free everything...
 	free(matrix);
 	free(p_result);
-	free(p_built);
+	//free(p_built);
 	free(p_previous);
 	free(map);
 }
@@ -316,10 +319,14 @@ int list_compare(ssize_t** list, const int row){
 /**
  * 	Reduce the matrix size
  */
-double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* nrows, ssize_t npages){
+double* matrix_reduce(double* matrix, ssize_t* map, double* column_multiple, ssize_t** in_list, ssize_t* nrows, ssize_t npages){
 	int next_del = 0;
 	int isSame = -1;
 	ssize_t row_count = 0;
+
+	for(int j=0; j < npages; j++){
+		column_multiple[j] = 1.0;
+	}
 
 	ssize_t* delete_rows = (ssize_t*) malloc(sizeof(ssize_t)*(npages-1));  // rows to delete in matrix.
 
@@ -330,15 +337,28 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* 
 		if(isSame != -1){
 			delete_rows[next_del++] = row_id;
 			map[row_id] = map[isSame];
+			column_multiple[map[isSame]] += 1.0;
 		}else{
 			map[row_id] = row_count++;
 		}
 	}
 
+	// count number of times an index is used:
+
+	/*ssize_t counter = 0;
+	for(int i=0; i < npages; i++){
+		counter = 0;
+		for(int j=0; j < npages; j++){
+			if(map[j] == i) counter++;
+		}
+
+		column_multiple[i] = counter;
+	}*/
+
 	double* result = (double*)malloc(sizeof(double)*(npages*(npages-next_del)));
 
 
-	*nrows = build_matrix(result, matrix, delete_rows, npages, next_del);  // returns number of rows, puts result in first arg.
+	*nrows = build_matrix(result, matrix, map, delete_rows, npages, next_del);  // returns number of rows, puts result in first arg.
 
 	free(matrix);
 	free(delete_rows);
@@ -354,32 +374,62 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* 
 /**
  *	Function to build a new matrix, removing the rows that are not wanted (given in an array).
  */
-ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_rows, const ssize_t width, const int end_del){
+ssize_t build_matrix(double* result, const double* matrix, const ssize_t* map, const ssize_t* del_rows, const ssize_t width, const int end_del){
 	if(end_del == 0){
 		// no reduction acheived... this is worst case run time.
 		return width;
 	}
 
 	ssize_t num_rows = width - end_del;
-	int next = 0;
+
 
 	// columns before...
-	int offset = 0;
+	int r_offset = 0;
+	int c_offset = 0;
+	int r_next = 0;
+	int c_next = 0;
+	double sum= 0.0;
 
+	printf("reducing rows and columns\n");
 	for(ssize_t row = 0; row < num_rows; row++){
-		if( next < end_del && (row+offset) == del_rows[next]){
+		if( (row+r_offset) == del_rows[r_next]){
 			// when we hit the row that we want to remove, increment the offset to skip that row.
-			offset++;
-			next++;
+			r_offset++;
+			r_next++;
+			if(r_next >= end_del) r_next = 0;  // no more elements to search through.
 			row--;
 		}else{
-			for(int col = 0; col < width; col++){
-				result[(row) * width + (col)] = matrix[(row+offset) * (width) + (col)];
+			for(int col = 0; col < (width - c_offset); col++){
+				if(col == del_rows[c_next]){
+					c_offset++;
+					c_next++;
+					if(c_next >= end_del) c_next = 0;  // no more elements to search through.
+
+				}
+				result[(row) * (width - c_offset) + (col)] = matrix[(row+r_offset) * (width) + (col+c_offset)];
 			}
 		}
-
 	}
 
+	display(matrix, width);
+	display(result, num_rows);
+
+	printf("multiplying rows and columns\n");
+	// multiply columns by respective values from col_mul:
+	ssize_t master;
+	ssize_t slave;
+	int counter = 0;
+
+	while(counter < end_del){
+		slave = del_rows[counter];
+		master = map[slave];
+
+		for(int row=0; row < num_rows; row++){
+			result[(row) * num_rows + master] += matrix[(row+slave) * (width) + (slave)];
+		}
+		counter++;
+	}
+	display(result, num_rows);
 	// return the new, reduced number of rows...
 	return num_rows;
 
