@@ -154,7 +154,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		while(inlink != NULL){
 			// calculate 1 / |OUT(j)| for each inlink page, adjusted for M_hat
 			j = inlink->page->index;
-			//printf("id: %zu \n", j);
 
 			in_list[i] = (ssize_t*) realloc(in_list[i], sizeof(ssize_t)*(inlink_counter+1));
 			in_list[i][inlink_counter++] = j;
@@ -165,7 +164,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 		in_list[i][0] = -1;
 		qsort(in_list[i], inlink_counter, sizeof(ssize_t), sortcmp);
-		//printf("inlist counter: %zu\n", inlink_counter);
 		in_list[i][0] = inlink_counter-1;
 		inlink_counter = 1;
 
@@ -308,8 +306,17 @@ int sortcmp(const void * a, const void * b){
  */
 int list_compare(ssize_t** list, const int row){
 	int i;
+	int flag = 0;
 	for(i=0; i < row; i++){
-		if(listcmp(list[row], list[i]) == 0) return i;
+		// check sizes:
+		if(list[row][0] == list[i][0]){
+			// same size, continue:
+			for(int j=1; j < list[row][0]+1; j++){
+				if(list[row][j] != list[i][j]) {flag= 0; break;}
+				else flag = 1;
+			}
+			if(flag) return i;
+		}
 	}
 	return -1;
 }
