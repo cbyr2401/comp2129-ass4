@@ -37,6 +37,7 @@ double sum_row(const double* matrix, const int row, const ssize_t width);
 // display:
 void display(const double* matrix, ssize_t npage);
 void display_vector(const double* vector, ssize_t npage);
+void display_matrix(const double* matrix, ssize_t rows, ssize_t cols);
 //#endif
 
 // matrix struct:
@@ -66,16 +67,16 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	*/
 
 	/*  What goes in each (i,j)th cell:
-	
+
 						1 / N			if |OUT(j)| = 0  (doesn't link to anything)
 			M(i,j)  =   1 / |OUT(j)|	if j links to i  (does link to that page)
 						0				otherwise		(doesn't link to that page)
-		
-		
+
+
 		As well as this, we need to apply the damping factor (at the same time for speeeeeed)
-		
+
 			^M = d*M(i,j) + ((1 - d) / N)
-		
+
 		Algorithm: PageRank main
 		1) Calculate |OUT| and |IN| sets  <<<<<<<<<< HARD
 		2) Build Matrix (including dampener)
@@ -183,7 +184,11 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	ssize_t* map = (ssize_t*) malloc(sizeof(ssize_t)*npages);  // maps pages --> matrix_row indexes
 	ssize_t nrows = npages;
 
+	display(matrix, npages);
+
 	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
+
+	display_matrix(matrix, nrows, npages);
 
 	printf("map: \n");
 	for(int i=0; i < npages; i++){
@@ -194,8 +199,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 
 	printf("nrows: %zu | npages: %zu\n", nrows, npages);
-
-	return;
 
 	// We now have the matrix M_hat ready to go...let's start the pagerank iterations.
 	/*
@@ -218,6 +221,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		p_result = (double*) malloc(sizeof(double)*nrows);
 
 		matrix_mul(p_result, matrix, p_previous, npages, nrows, nthreads);
+
+		printf("matrix mul completed!\n");
 
 		p_built = build_vector(p_result, map, npages);
 		//p_built = p_result;
@@ -389,8 +394,8 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* 
 	for(int row_id = 0; row_id < npages; row_id++){
 		// We already have the maxtrix built, this will form a rectangular matrix, with less rows than the original one.
 		sum = sum_row(matrix, row_id, npages);
-		//isSame = list_compare(in_list, row_id);
-		isSame = compare_sum(sums, sum, next_sum);
+		isSame = list_compare(in_list, row_id);
+		//isSame = compare_sum(sums, sum, next_sum);
 
 		if(isSame != -1){
 			delete_rows[next_del++] = row_id;
@@ -431,18 +436,31 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_ro
 	ssize_t num_rows = width - end_del;
 	int next = 0;
 
+	printf("num_rows: %zu | end_del: %i \n", num_rows, end_del);
 	// columns before...
 	int offset = 0;
 
+	printf("delete_row[]: ");
+	for(int i=0; i < end_del; i++){
+		printf("%zu ", del_rows[i]);
+	}
+	printf("\n");
+
 	for(ssize_t row = 0; row < num_rows; row++){
-		if(row == del_rows[next]){
+		//printf("next delete: %zu \n", del_rows[next]);
+		if( next < end_del && (row+offset) == del_rows[next]){
 			// when we hit the row that we want to remove, increment the offset to skip that row.
-			offset+=1;
+			printf("removing row...%zu  \n", row);
+			offset++;
 			next++;
+			row--;
+			printf("row: %zu   ||  next:  %i  || offset:  %i \n", row, next, offset);
+		}else{
+			for(int col = 0; col < width; col++){
+				result[(row) * width + (col)] = matrix[(row+offset) * (width) + (col)];
+			}
 		}
-		for(int col = 0; col < width; col++){
-			result[(row) * width + (col)] = matrix[(row+offset) * (width) + (col)];
-		}
+
 	}
 
 	// return the new, reduced number of rows...
@@ -687,14 +705,14 @@ void matrix_mul(double* result, const double* matrix, const double* vector, cons
 	// initialise arrays for threading
 	pthread_t thread_ids[nthreads];
 	threadargs args[nthreads];
-	
+
 	// get a function pointer to worker thread:
 	void* (*worker)(void*);
 	worker = &matrix_mul_worker;
-	
+
 	int start = 0;
 	int end = 0;
-	
+
 	// set arguments for worker
 	for(int id=0; id < nthreads; id++){
 		end = id == nthreads - 1 ? height : (id + 1) * (height / nthreads);
@@ -708,13 +726,13 @@ void matrix_mul(double* result, const double* matrix, const double* vector, cons
 		};
 		start = end;
 	}
-	
+
 	// launch threads
 	for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
 
 	// wait for threads to finish
 	for (size_t i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
-	
+
 	return;
 }
 
@@ -724,17 +742,17 @@ void matrix_mul(double* result, const double* matrix, const double* vector, cons
  */
 void* matrix_mul_worker(void* argv){
 	threadargs* data = (threadargs*) argv;
-	
+
 	const int start = data->start;
 	const int end = data->end;
 	const int width = data->width;
-	
+
 	const double* matrix = data->matrix;
 	const double* vector = data->vector;
 	double* result = data->result;
-	
+
 	double sum = 0.0;
-	
+
 	// only use for a matrix * vector ( ^M * P(t) )
 	for(int i=start; i < end; i++){
 		sum = 0.0;
@@ -743,7 +761,7 @@ void* matrix_mul_worker(void* argv){
 		}
 		result[i] = sum;
 	}
-	
+
 	return NULL;
 }
 
@@ -762,8 +780,24 @@ void display(const double* matrix, ssize_t npage) {
 
 		printf("\n");
 	}
+	printf("\n");
 }
 
+
+/**
+ * Displays given matrix.
+ */
+void display_matrix(const double* matrix, ssize_t rows, ssize_t npages) {
+	for (ssize_t y = 0; y < rows; y++) {
+		for (ssize_t x = 0; x < npages; x++) {
+			if (x > 0) printf(" ");
+			printf("%.8lf", matrix[y * npages + x]);
+		}
+
+		printf("\n");
+	}
+	printf("\n");
+}
 
 /**
  * Displays given vector.
