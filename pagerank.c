@@ -174,17 +174,17 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	double* column_multiple = (double*) malloc(sizeof(double)*npages);
 	ssize_t nrows = npages;
 
-	//#ifdef EBUG
+	#ifdef EBUG
 		display(matrix, npages);
-	//#endif
+	#endif
 
-	printf("matrix reduce\n");
+	//printf("matrix reduce\n");
 
 	matrix = matrix_reduce(matrix, map, column_multiple, in_list, &nrows, npages);
 
-	//#ifdef EBUG
+	#ifdef EBUG
 		display_matrix(matrix, nrows, nrows);
-	//#endif
+	#endif
 
 	//printf("map: \n");
 	//for(int i=0; i < npages; i++){
@@ -193,7 +193,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	//}
 
 
-	printf("nrows: %zu | npages: %zu\n", nrows, npages);
+	//printf("nrows: %zu | npages: %zu\n", nrows, npages);
 
 	// We now have the matrix M_hat ready to go...let's start the pagerank iterations.
 	/*
@@ -222,7 +222,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 		//p_built = build_vector(p_result, map, npages);
 		p_built = p_result;
-		display_vector(p_built, nrows);
+		//display_vector(p_built, nrows);
 
 		// calculate the vector norm.  TODO: investigate if p_result can be used here.
 		norm_result = vector_norm(p_built, p_previous, nrows, nthreads);
@@ -244,7 +244,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		free(p_previous);
 		p_previous = p_built;
 		p_result = NULL;
-		printf("iterations: %u\n", iterations++);
+		//printf("iterations: %u\n", iterations++);
 		//sleep(5);
 
 		if(iterations > 50) exit(0);
@@ -463,8 +463,8 @@ double* build_matrix(double* matrix, const ssize_t width, const ssize_t* map, co
 
 		// move to the next column to be deleted...
 	}
-	printf("built martix: \n");
-	display(result, nrows);
+	//printf("built martix: \n");
+	//display(result, nrows);
 	//exit(0);
 
 	// shrink the memory of result
