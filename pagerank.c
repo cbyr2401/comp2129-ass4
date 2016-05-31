@@ -24,7 +24,7 @@ void* matrix_mul_worker(void* argv);
 
 // reduction operations:
 double* matrix_reduce(double* matrix, ssize_t* map, double* column_multiple, ssize_t** in_list, ssize_t* nrows, ssize_t npages);
-double* build_matrix(const double* matrix, const ssize_t width, const ssize_t* map, const ssize_t* del, const int numdel, ssize_t* new_rows);
+double* build_matrix(double* matrix, const ssize_t width, const ssize_t* map, const ssize_t* del, const int numdel, ssize_t* new_rows);
 double* build_vector(const double* vector, const ssize_t* map, const ssize_t npages);
 int list_compare(ssize_t** list, const int row);
 int sortcmp(const void * a, const void * b);
@@ -385,7 +385,7 @@ void add_columns(double* result, const ssize_t rwidth, const ssize_t rcol, const
 /**
  *	Function to build a new matrix, removing the rows that are not wanted (given in an array).
  */
-double* build_matrix(const double* matrix, const ssize_t width, const ssize_t* map, const ssize_t* del, const int numdel, ssize_t* new_rows){
+double* build_matrix(double* matrix, const ssize_t width, const ssize_t* map, const ssize_t* del, const int numdel, ssize_t* new_rows){
 	//if(numdel == 0){
 		// no reduction acheived... this is worst case run time.
 	//	return matrix;
@@ -411,29 +411,9 @@ double* build_matrix(const double* matrix, const ssize_t width, const ssize_t* m
 	int n_id = 0;
 	int offset = 0;
 	int did = 0;
-	// eliminate rows:
-	for(int row=0; row < nrows; row++){
-		// get the column that is to be deleted, with id from old matrix
-		m_id = del[did];
-		// get which column in the new matrix the results should be added to
-		//n_id = map[m_id];
+	int next = 0;
+	int c_offset = 0;
 
-		if(row == m_id){
-			offset++;
-			row--;
-			if(did < numdel) did++;
-		}
-
-		// now add the values in the old matrix to the new one.
-		for(int col=0; col < width; col++){
-			result[row * nrows + col] = matrix[(row+offset) * width + col];
-		}
-
-		// move to the next column to be deleted...
-	}
-
-	display(result, width);
-	exit(0);
 
 	// go through the whole map and add the columns that are the same:
 	for(int did=0; did < numdel; did++){
@@ -444,63 +424,50 @@ double* build_matrix(const double* matrix, const ssize_t width, const ssize_t* m
 
 		// now add the values in the old matrix to the new one.
 		for(int row=0; row < width; row++){
-			result[map[row] * nrows + n_id] += matrix[row * width + m_id];
+			matrix[row * width + n_id] += matrix[row * width + m_id];
 		}
 
 		// move to the next column to be deleted...
 	}
 
-	display(result, width);
+	//display(result, nrows);
+	//display(matrix, width);
+
+	// eliminate rows:
+	for(int row=0; row < nrows; row++){
+		// get the column that is to be deleted, with id from old matrix
+		m_id = del[did];
+		// get which column in the new matrix the results should be added to
+		//n_id = map[m_id];
+
+		if((row+offset) == m_id){
+			offset++;
+			row--;
+			if(did < numdel - 1) did++;
+		}
+
+		// now add the values in the old matrix to the new one.
+		for(int col=0; col < nrows; col++){
+			//printf("column: %i  || del[%i] = %zu \n", col, next, del[next]);
+			if((col+c_offset) == del[next]){
+				c_offset++;
+				col--;
+				if(next < numdel - 1) next++;
+			}else{
+				result[row * nrows + col] = matrix[(row+offset) * width + (col+c_offset)];
+			}
+		}
+		next = 0;
+		c_offset = 0;
+
+		// move to the next column to be deleted...
+	}
+	printf("built martix: \n");
+	display(result, nrows);
+	//exit(0);
 
 	// shrink the memory of result
 	//result = realloc(result, sizeof(double)*nrows*nrows);
-
-	display(result, nrows);
-	exit(0);
-
-	/*
-
-
-	// columns before...
-	int offset = 0;
-	int next = 0;
-
-	for(ssize_t row = 0; row < num_rows; row++){
-		if( next < end_del && (row+offset) == del_rows[next]){
-			// when we hit the row that we want to remove, increment the offset to skip that row.
-			offset++;
-			next++;
-			row--;
-		}else{
-			for(int col = 0; col < width; col++){
-				result[(row) * width + (col)] = matrix[(row+offset) * (width) + (col)];
-			}
-		}
-
-	}
-
-	display(matrix, width);
-	display(result, num_rows);
-
-	printf("multiplying rows and columns\n");
-	// multiply columns by respective values from col_mul:
-	*/
-	/*ssize_t master;
-	ssize_t slave;
-	int counter = 0;
-
-	while(counter < end_del){
-		slave = del_rows[counter];
-		master = map[slave];
-
-		for(int row=0; row < num_rows; row++){
-			result[(row) * num_rows + master] += matrix[(row+slave) * (width) + (slave)];
-		}
-		counter++;
-	}
-	display(result, num_rows);*/
-	// return the new, reduced number of rows...
-
 
 	//set values that are leaving the function...
 	*new_rows = nrows;
