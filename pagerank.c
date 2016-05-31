@@ -182,9 +182,9 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	matrix = matrix_reduce(matrix, map, column_multiple, in_list, &nrows, npages);
 
-	#ifdef EBUG
+	//#ifdef EBUG
 		display_matrix(matrix, nrows, nrows);
-	#endif
+	//#endif
 
 	//printf("map: \n");
 	//for(int i=0; i < npages; i++){
