@@ -324,12 +324,13 @@ double* matrix_reduce(double* matrix, ssize_t* map, double* column_multiple, ssi
 	int next_del = 0;
 	int isSame = -1;
 	ssize_t row_count = 0;
+	double* result = NULL;
 
 	for(int j=0; j < npages; j++){
 		column_multiple[j] = 1.0;
 	}
 
-	ssize_t* delete_rows = (ssize_t*) malloc(sizeof(ssize_t)*(npages-1));  // rows to delete in matrix.
+	ssize_t* delete_rows = (ssize_t*) malloc(sizeof(ssize_t)*(npages));  // rows to delete in matrix.
 
 	for(int row_id = 0; row_id < npages; row_id++){
 		// We already have the maxtrix built, this will form a rectangular matrix, with less rows than the original one.
@@ -344,24 +345,20 @@ double* matrix_reduce(double* matrix, ssize_t* map, double* column_multiple, ssi
 		}
 	}
 
-	// count number of times an index is used:
-
-	/*ssize_t counter = 0;
-	for(int i=0; i < npages; i++){
-		counter = 0;
-		for(int j=0; j < npages; j++){
-			if(map[j] == i) counter++;
-		}
-
-		column_multiple[i] = counter;
-	}*/
-
 	//double* result = (double*)malloc(sizeof(double)*(npages*(npages-next_del)));
 
-	double* result = build_matrix(matrix, npages, map, delete_rows, next_del, nrows);  // returns number of rows, puts result in first arg.
+	if(next_del > 0){
+		result = build_matrix(matrix, npages, map, delete_rows, next_del, nrows);  // returns number of rows, puts result in first arg.
+
+		// free the old matrix
+		free(matrix);
+	}else{
+		*nrows = npages;
+		result = matrix;
+	}
 
 	// free the old matrix
-	free(matrix);
+	//free(matrix);
 
 	// free data structures used for calculation new matrix
 	free(delete_rows);
