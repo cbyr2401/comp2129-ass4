@@ -268,6 +268,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	//free(p_built);
 	free(p_previous);
 	free(map);
+	free(column_multiple);
 }
 
 
