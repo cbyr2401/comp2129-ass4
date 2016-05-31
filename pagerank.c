@@ -394,6 +394,7 @@ double* build_matrix(double* matrix, const ssize_t width, const ssize_t* map, co
 
 	// allocate memory for new matrix:
 	double* result = (double*) calloc(sizeof(double), nrows*nrows);
+	//long double* temp = (double*) calloc(sizeof(long double), nrows*npages);
 
 
 
@@ -412,7 +413,7 @@ double* build_matrix(double* matrix, const ssize_t width, const ssize_t* map, co
 	int next = 0;
 	int c_offset = 0;
 
-
+	display(matrix, width);
 	// go through the whole map and add the columns that are the same:
 	for(int did=0; did < numdel; did++){
 		// get the column that is to be deleted, with id from old matrix
@@ -428,8 +429,8 @@ double* build_matrix(double* matrix, const ssize_t width, const ssize_t* map, co
 		// move to the next column to be deleted...
 	}
 
-	//display(result, nrows);
-	//display(matrix, width);
+	display(result, nrows);
+	display(matrix, width);
 
 	// eliminate rows:
 	for(int row=0; row < nrows; row++){
@@ -461,8 +462,8 @@ double* build_matrix(double* matrix, const ssize_t width, const ssize_t* map, co
 		// move to the next column to be deleted...
 	}
 	//printf("built martix: \n");
-	//display(result, nrows);
-	//exit(0);
+	display(result, nrows);
+	exit(0);
 
 	// shrink the memory of result
 	//result = realloc(result, sizeof(double)*nrows*nrows);

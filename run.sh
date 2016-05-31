@@ -6,4 +6,4 @@
 #./pagerank 2 < tests/test04.in
 #valgrind --show-leak-kinds=all --leak-check=full ./pagerank 4 < tests/test06.in
 #gprof pagerank
-head tests/cdog-small.out
+#head tests/cdog-small.out
