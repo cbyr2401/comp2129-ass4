@@ -10,33 +10,38 @@
 #define TOPTIMIAL 50
 
 // vector operations:
-double vector_norm(const double* vector_a, const double* vector_b, const ssize_t width, const ssize_t nthreads);
-double* vector_sub(const double* vector_a, const double* vector_b, const ssize_t width, const ssize_t nthreads);
-void* vector_sub_worker(void* args);
-double vector_sumsq(const double* vector, const ssize_t width, const ssize_t nthreads);
+double vector_norm(const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads);
+double vector_sumsq(const double* vector, const size_t width, const size_t nthreads);
 void* vector_sumsq_worker(void* argv);
+double* vector_sub(const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads);
+void* vector_sub_worker(void* argv);
+
 
 // matrix operations:
-double* matrix_init(const double value, ssize_t n, ssize_t nthreads);
+double* matrix_init(const double value, size_t n, size_t nthreads);
 void* matrix_init_worker(void* argv);
-void matrix_mul(double* result, const double* matrix, const double* vector, const int ncols, const int nrows, const int nthreads);
+void matrix_mul(double* result, const double* matrix, const double* vector, const size_t width, const size_t height, const size_t nthreads);
 void* matrix_mul_worker(void* argv);
 
+
 // reduction operations:
-double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* nrows, ssize_t npages);
-ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_rows, const ssize_t npages, const int end_del);
-double* build_vector(const double* vector, const ssize_t* map, const ssize_t npages);
-int list_compare(ssize_t** list, const int row);
+double* build_vector(const double* vector, const size_t* map, const size_t npages);
 int sortcmp(const void * a, const void * b);
+int list_compare(size_t** list, const int row);
+double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, size_t npages);
+size_t build_matrix(double* result, const double* matrix, const size_t* del_rows, const size_t width, const int end_del);
+
+
+// extra methods for debugging:
+void display(const double* matrix, size_t npage);
+void display_matrix(const double* matrix, size_t rows, size_t npages);
+void display_vector(const double* vector, size_t npage);
+
+
+// function pointers to threading operations:
 
 
 
-//#ifdef EBUG
-// display:
-void display(const double* matrix, ssize_t npage);
-void display_vector(const double* vector, ssize_t npage);
-void display_matrix(const double* matrix, ssize_t rows, ssize_t cols);
-//#endif
 
 // matrix struct:
 typedef struct {
@@ -105,8 +110,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	double* p_built = NULL;
 
 	// matrix index temp values:
-	ssize_t i = 0;
-	ssize_t j = 0;
+	size_t i = 0;
+	size_t j = 0;
 
 	// node temp variables
 	node* current = list;
@@ -118,8 +123,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	// list of keys:
 	char* keys[npages];
-	ssize_t* in_list[npages];
-	ssize_t inlink_counter = 1;
+	size_t* in_list[npages];
+	size_t inlink_counter = 1;
 
 	/*
 		Algorithm: Building Matrix M and M_hat
@@ -130,7 +135,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	*/
 
 	for(int i=0; i < npages; i++){
-		in_list[i] = (ssize_t*) malloc(sizeof(ssize_t));
+		in_list[i] = (size_t*) malloc(sizeof(size_t));
 	}
 
 	while(current != NULL){
@@ -153,7 +158,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			// calculate 1 / |OUT(j)| for each inlink page, adjusted for M_hat
 			j = inlink->page->index;
 
-			in_list[i] = (ssize_t*) realloc(in_list[i], sizeof(ssize_t)*(inlink_counter+1));
+			in_list[i] = (size_t*) realloc(in_list[i], sizeof(size_t)*(inlink_counter+1));
 			in_list[i][inlink_counter++] = j;
 
 			matrix[i * npages + j] += ((1.0 / (double) inlink->page->noutlinks)*dampener);
@@ -161,7 +166,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		}
 
 		in_list[i][0] = -1;
-		qsort(in_list[i], inlink_counter, sizeof(ssize_t), sortcmp);
+		qsort(in_list[i], inlink_counter, sizeof(size_t), sortcmp);
 		in_list[i][0] = inlink_counter-1;
 		inlink_counter = 1;
 
@@ -170,18 +175,10 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	}
 
 	// reduction algorithm:
-	ssize_t* map = (ssize_t*) malloc(sizeof(ssize_t)*npages);  // maps pages --> matrix_row indexes
-	ssize_t nrows = npages;
-
-	#ifdef EBUG
-		display(matrix, npages);
-	#endif
+	size_t* map = (size_t*) malloc(sizeof(size_t)*npages);  // maps pages --> matrix_row indexes
+	size_t nrows = npages;
 
 	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
-
-	#ifdef EBUG
-		display_matrix(matrix, nrows, npages);
-	#endif
 
 	//printf("map: \n");
 	//for(int i=0; i < npages; i++){
@@ -204,10 +201,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			vi) Free the previous P(t) and set P(t+1) TO p(t)
 	*/
 
-	#ifdef EBUG
-		display_vector(p_previous, npages);
-		printf("\n");
-	#endif
 
 	//int iterations = 0;
 	while(1){
@@ -271,7 +264,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 /**
  *	Build a larger vector for the next calcuations.
  */
-double* build_vector(const double* vector, const ssize_t* map, const ssize_t npages){
+double* build_vector(const double* vector, const size_t* map, const size_t npages){
 	double* result = (double*) malloc(sizeof(double)*npages);
 
 	for(int i = 0; i < npages; i++){
@@ -287,7 +280,7 @@ double* build_vector(const double* vector, const ssize_t* map, const ssize_t npa
  * 	Source:			http://www.tutorialspoint.com/c_standard_library/c_function_qsort.htm
  */
 int sortcmp(const void * a, const void * b){
-	return ((int)( *(ssize_t*)a - *(ssize_t*)b ));
+	return ((int)( *(size_t*)a - *(size_t*)b ));
 }
 
 
@@ -295,7 +288,7 @@ int sortcmp(const void * a, const void * b){
  * 	Compares lists and returns the row_id of the FIRST list that is the same or -1.
  *		We only want to go upto the ones that we have seen.
  */
-int list_compare(ssize_t** list, const int row){
+int list_compare(size_t** list, const int row){
 	int i;
 	int flag = 0;
 	for(i=0; i < row; i++){
@@ -316,12 +309,12 @@ int list_compare(ssize_t** list, const int row){
 /**
  * 	Reduce the matrix size
  */
-double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* nrows, ssize_t npages){
-	int next_del = 0;
+double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages){
+	size_t next_del = 0;
 	int isSame = -1;
-	ssize_t row_count = 0;
+	size_t row_count = 0;
 
-	ssize_t* delete_rows = (ssize_t*) malloc(sizeof(ssize_t)*(npages-1));  // rows to delete in matrix.
+	size_t* delete_rows = (size_t*) malloc(sizeof(size_t)*(npages-1));  // rows to delete in matrix.
 
 	for(int row_id = 0; row_id < npages; row_id++){
 		// We already have the maxtrix built, this will form a rectangular matrix, with less rows than the original one.
@@ -346,12 +339,14 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* 
 		free(matrix);
 	}
 
+	// free extra data structures
 	free(delete_rows);
 
 	for(int i=0; i < npages; i++){
 		free(in_list[i]);
 	}
 
+	// return result matrix
 	return result;
 }
 
@@ -359,19 +354,19 @@ double* matrix_reduce(double* matrix, ssize_t* map, ssize_t** in_list, ssize_t* 
 /**
  *	Function to build a new matrix, removing the rows that are not wanted (given in an array).
  */
-ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_rows, const ssize_t width, const int end_del){
+size_t build_matrix(double* result, const double* matrix, const size_t* del_rows, const size_t width, const int end_del){
 	if(end_del == 0){
 		// no reduction acheived... this is worst case run time.
 		return width;
 	}
 
-	ssize_t num_rows = width - end_del;
+	size_t num_rows = width - end_del;
 	int next = 0;
 
 	// columns before...
 	int offset = 0;
 
-	for(ssize_t row = 0; row < num_rows; row++){
+	for(int row = 0; row < num_rows; row++){
 		if( next < end_del && (row+offset) == del_rows[next]){
 			// when we hit the row that we want to remove, increment the offset to skip that row.
 			offset++;
@@ -395,16 +390,10 @@ ssize_t build_matrix(double* result, const double* matrix, const ssize_t* del_ro
  *	Calculates the vector norm of the subtraction of two vectors.
  *		Formula: || P(1) - P(0) ||
  */
-double vector_norm(const double* vector_a, const double* vector_b, const ssize_t width, const ssize_t nthreads){
+double vector_norm(const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads){
 	double result = 0.0;
 
 	double* vector = vector_sub(vector_a, vector_b, width, nthreads);
-
-	#ifdef EBUG
-		printf("vector norm calc:\n");
-		display_vector(vector, width);
-		printf("\n");
-	#endif
 
 	result = vector_sumsq(vector, width, nthreads);
 	result = sqrt(result);
@@ -418,7 +407,7 @@ double vector_norm(const double* vector_a, const double* vector_b, const ssize_t
  *	Performs vector sum squared on single vector.  Threaded
  *		Formula: sum += vector[i] * vector[i], for all i
  */
-double vector_sumsq(const double* vector, const ssize_t width, const ssize_t nthreads){
+double vector_sumsq(const double* vector, const size_t width, const size_t nthreads){
 	double sum = 0.0;
 	// initialise arrays for threading
 	pthread_t thread_ids[nthreads];
@@ -449,20 +438,15 @@ double vector_sumsq(const double* vector, const ssize_t width, const ssize_t nth
 	for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
 
 	// wait for threads to finish
-	for (size_t i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
+	for (int i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
 
 	// sum up results
-	for (size_t i = 0; i < nthreads; i++){
+	for (int i = 0; i < nthreads; i++){
 		sum += *(args[i].result);
 		free(args[i].result);
 	}
 
-	#ifdef EBUG
-		printf("sumsq: %.8lf\n", sum);
-	#endif
-
 	return sum;
-
 }
 
 
@@ -492,7 +476,7 @@ void* vector_sumsq_worker(void* argv){
 /**
  *	Initialises a matrix to the given value.
  */
-double* matrix_init(const double value, ssize_t n, ssize_t nthreads){
+double* matrix_init(const double value, size_t n, size_t nthreads){
 	double* matrix = (double*) malloc((n) * sizeof(double));
 
 	if(n < TOPTIMIAL){
@@ -529,7 +513,7 @@ double* matrix_init(const double value, ssize_t n, ssize_t nthreads){
 		for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
 
 		// wait for threads to finish
-		for (size_t i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
+		for (int i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
 	}
 
 	return matrix;
@@ -560,7 +544,7 @@ void* matrix_init_worker(void* argv){
  *	Performs vector subtraction between two given vectors.  Threaded
  *		Formula: P(1) - P(0)
  */
-double* vector_sub(const double* vector_a, const double* vector_b, const ssize_t width, const ssize_t nthreads){
+double* vector_sub(const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads){
 	double* vector = malloc(sizeof(double)*width);
 
 	// initialise arrays for threading
@@ -593,7 +577,7 @@ double* vector_sub(const double* vector_a, const double* vector_b, const ssize_t
 	for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
 
 	// wait for threads to finish
-	for (size_t i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
+	for (int i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
 
 	return vector;
 }
@@ -623,7 +607,7 @@ void* vector_sub_worker(void* argv){
 /**
  *	Matrix Multiply Thread Controller Process
  */
-void matrix_mul(double* result, const double* matrix, const double* vector, const int width, const int height, const int nthreads){
+void matrix_mul(double* result, const double* matrix, const double* vector, const size_t width, const size_t height, const size_t nthreads){
 	// initialise arrays for threading
 	pthread_t thread_ids[nthreads];
 	threadargs args[nthreads];
@@ -653,7 +637,7 @@ void matrix_mul(double* result, const double* matrix, const double* vector, cons
 	for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
 
 	// wait for threads to finish
-	for (size_t i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
+	for (int i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
 
 	return;
 }
@@ -693,7 +677,7 @@ void* matrix_mul_worker(void* argv){
 /**
  * Displays given matrix.
  */
-void display(const double* matrix, ssize_t npage) {
+void display(const double* matrix, size_t npage) {
 	for (ssize_t y = 0; y < npage; y++) {
 		for (ssize_t x = 0; x < npage; x++) {
 			if (x > 0) printf(" ");
@@ -709,7 +693,7 @@ void display(const double* matrix, ssize_t npage) {
 /**
  * Displays given matrix.
  */
-void display_matrix(const double* matrix, ssize_t rows, ssize_t npages) {
+void display_matrix(const double* matrix, size_t rows, size_t npages) {
 	for (ssize_t y = 0; y < rows; y++) {
 		for (ssize_t x = 0; x < npages; x++) {
 			if (x > 0) printf(" ");
@@ -724,7 +708,7 @@ void display_matrix(const double* matrix, ssize_t rows, ssize_t npages) {
 /**
  * Displays given vector.
  */
-void display_vector(const double* vector, ssize_t npage) {
+void display_vector(const double* vector, size_t npage) {
 	for (ssize_t x = 0; x < npage; x++) {
 		printf("%.24lf", vector[x]);
 		printf("\n");
