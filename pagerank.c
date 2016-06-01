@@ -25,7 +25,7 @@ void* matrix_mul_worker(void* argv);
 
 
 // reduction operations:
-double* build_vector(const double* vector, const size_t* map, const size_t npages);
+double* build_vector(const double* vector, const size_t* colmap, const size_t* map, const size_t ncols);
 int sortcmp(const void * a, const void * b);
 int list_compare(size_t** list, const int row);
 double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, const size_t* delete_cols, size_t* nrows, size_t* ncols, const size_t ncol_del, const size_t npages);
@@ -128,6 +128,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	size_t inlink_counter = 1;
 	size_t no_outlinks = 0;
 	size_t column_delete[npages];
+	size_t colmap[npages];
 
 	/*
 		Algorithm: Building Matrix M and M_hat
@@ -151,7 +152,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		if(cpage->noutlinks == 0){
 			// set the column that needs to be multiplied by "no_outlinks"
 			column_delete[no_outlinks] = i;
-			//printf("deleting column: %zu  || initial val: %.8lf\n", i, add_E);
+			colmap[i] = column_delete[0];
+			printf("deleting column: %zu  || initial val: %.8lf\n", i+1, add_E);
 
 			// set the value down the column
 			//if(no_outlinks == 0){
@@ -162,6 +164,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			//}
 
 			no_outlinks++;
+		}else{
+			colmap[i] = i;
 		}
 
 		inlink = cpage->inlinks;
@@ -191,16 +195,16 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	size_t nrows = npages;
 	size_t ncols = npages;
 
-	//display(matrix, npages);
+	display(matrix, npages);
 
 	matrix = matrix_reduce(matrix, map, in_list, column_delete, &nrows, &ncols, no_outlinks, npages);
 
 	display_matrix(matrix, nrows, ncols);
-	//printf("map: \n");
-	//for(int i=0; i < npages; i++){
-	//	printf("%u %zu\n", i, map[i]);
+	printf("map(s):\tmap\tcolmap \n");
+	for(int i=0; i < npages; i++){
+		printf("%u|\t%zu\t%zu \n", i, map[i], colmap[i]);
 		//map[i] = i;
-	//}
+	}
 
 
 
@@ -225,10 +229,11 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		matrix_mul(p_result, matrix, p_previous, ncols, nrows, nthreads);
 
 		//printf("matrix mul completed!\n");
+		display_vector(p_result, nrows);
 
-		p_built = build_vector(p_result, map, ncols);
+		p_built = build_vector(p_result, colmap, map, ncols);
 		//p_built = p_result;
-		//display_vector(p_built, nrows);
+		display_vector(p_built, ncols);
 
 		// calculate the vector norm.  TODO: investigate if p_result can be used here.
 		norm_result = vector_norm(p_built, p_previous, nrows, nthreads);
@@ -280,11 +285,12 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 /**
  *	Build a larger vector for the next calcuations.
  */
-double* build_vector(const double* vector, const size_t* map, const size_t ncols){
+double* build_vector(const double* vector, const size_t* colmap, const size_t* map, const size_t ncols){
 	double* result = (double*) malloc(sizeof(double)*ncols);
 
 	for(int i = 0; i < ncols; i++){
 		result[i] = vector[map[i]];
+		//result[i] = vector[map[colmap[i]]];
 	}
 
 	return result;
