@@ -153,7 +153,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			// set the column that needs to be multiplied by "no_outlinks"
 			column_delete[no_outlinks] = i;
 			colmap[i] = column_delete[0];
-			printf("deleting column: %zu  || initial val: %.8lf\n", i+1, add_E);
+			//printf("deleting column: %zu  || initial val: %.8lf\n", i+1, add_E);
 
 			// set the value down the column
 			//if(no_outlinks == 0){
@@ -195,16 +195,16 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	size_t nrows = npages;
 	size_t ncols = npages;
 
-	display(matrix, npages);
+	//display(matrix, npages);
 
 	matrix = matrix_reduce(matrix, map, in_list, column_delete, &nrows, &ncols, no_outlinks, npages);
 
-	display_matrix(matrix, nrows, ncols);
-	printf("map(s):\tmap\tcolmap \n");
-	for(int i=0; i < npages; i++){
-		printf("%u|\t%zu\t%zu \n", i, map[i], colmap[i]);
+	//display_matrix(matrix, nrows, ncols);
+	//printf("map(s):\tmap\tcolmap \n");
+	//for(int i=0; i < npages; i++){
+	//	printf("%u|\t%zu\t%zu \n", i, map[i], colmap[i]);
 		//map[i] = i;
-	}
+	//}
 
 
 
@@ -222,18 +222,18 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	*/
 	p_previous = matrix_init(div_page, ncols, nthreads);
 
-	int iterations = 0;
+	//int iterations = 0;
 	while(1){
 		p_result = (double*) malloc(sizeof(double)*nrows);
 
 		matrix_mul(p_result, matrix, p_previous, ncols, nrows, nthreads);
 
 		//printf("matrix mul completed!\n");
-		display_vector(p_result, nrows);
+		//display_vector(p_result, nrows);
 
 		p_built = build_vector(p_result, colmap, map, ncols);
 		//p_built = p_result;
-		display_vector(p_built, ncols);
+		//display_vector(p_built, ncols);
 
 		// calculate the vector norm.  TODO: investigate if p_result can be used here.
 		norm_result = vector_norm(p_built, p_previous, nrows, nthreads);
@@ -255,7 +255,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		free(p_previous);
 		p_previous = p_built;
 		p_result = NULL;
-		printf("iterations: %u\n", iterations++);
+		//printf("iterations: %u\n", iterations++);
 		//sleep(1);
 
 		//if(iterations > 5) exit(0);
@@ -290,7 +290,8 @@ double* build_vector(const double* vector, const size_t* colmap, const size_t* m
 
 	for(int i = 0; i < ncols; i++){
 		result[i] = vector[map[i]];
-		//result[i] = vector[map[colmap[i]]];
+		//result[colmap[i]] = vector[map[i]];
+
 	}
 
 	return result;
@@ -366,7 +367,7 @@ double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, const size_
 		free(matrix);
 	}
 
-	if(ncol_del == 0){
+	/*if(ncol_del == 0){
 		// nothing to do here... we can just use the other matrix returned above.
 		*ncols = npages;
 	}else{
@@ -379,7 +380,7 @@ double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, const size_
 			free(result);
 			result = matrix;
 		}
-	}
+	}*/
 
 	// free extra data structures
 	//free(delete_rows);
