@@ -10,10 +10,10 @@
 #define TOPTIMIAL 50
 
 // vector operations:
-double vector_norm(const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads);
+double vector_norm(double* vector, const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads);
 double vector_sumsq(const double* vector, const size_t width, const size_t nthreads);
 void* vector_sumsq_worker(void* argv);
-double* vector_sub(const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads);
+double* vector_sub(double* vector, const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads);
 void* vector_sub_worker(void* argv);
 
 
@@ -210,6 +210,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	// allocate memory for the vector returned by the matrix multiplication...
 	p_result = (double*) malloc(sizeof(double)*nrows);
 	p_built = (double*) malloc(sizeof(double)*npages);
+	double* vector = (double*) malloc(sizeof(double)*npages);
 
 	while(1){
 		// multiply the matrix by P(t)
@@ -220,7 +221,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		build_vector(p_built, p_result, map, npages);
 
 		// calculate the vector norm.
-		norm_result = vector_norm(p_built, p_previous, npages, nthreads);
+		norm_result = vector_norm(vector, p_built, p_previous, npages, nthreads);
 
 		// check for convergence
 		if(norm_result <= EPSILON) break;
@@ -238,6 +239,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	free(matrix);
 	free(p_result);
 	free(p_built);
+	free(p_previous);
+	free(vector);
 	free(map);
 }
 
@@ -374,14 +377,14 @@ double* remrow_matrix(size_t* nrows, const double* matrix, const size_t* del, co
  *	Calculates the vector norm of the subtraction of two vectors.
  *		Formula: || P(1) - P(0) ||
  */
-double vector_norm(const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads){
+double vector_norm(double* vector, const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads){
 	double result = 0.0;
 
-	double* vector = vector_sub(vector_a, vector_b, width, nthreads);
+	vector_sub(vector, vector_a, vector_b, width, nthreads);
 
 	result = vector_sumsq(vector, width, nthreads);
 	result = sqrt(result);
-	free(vector);
+	//free(vector);
 
 	return result;
 }
@@ -528,8 +531,8 @@ void* matrix_init_worker(void* argv){
  *	Performs vector subtraction between two given vectors.  Threaded
  *		Formula: P(1) - P(0)
  */
-double* vector_sub(const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads){
-	double* vector = malloc(sizeof(double)*width);
+double* vector_sub(double* vector, const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads){
+	//double* vector = malloc(sizeof(double)*width);
 
 	// initialise arrays for threading
 	pthread_t thread_ids[nthreads];
