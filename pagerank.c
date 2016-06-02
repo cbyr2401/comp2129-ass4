@@ -28,8 +28,9 @@ void* matrix_mul_worker(void* argv);
 double* build_vector(const double* vector, const size_t* map, const size_t npages);
 int sortcmp(const void * a, const void * b);
 int list_compare(size_t** list, const int row);
-double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, size_t npages);
-size_t build_matrix(double* result, const double* matrix, const size_t* del_rows, const size_t width, const int end_del);
+double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, const size_t* delete_cols, size_t* nrows, size_t* ncols, const size_t ncol_del, const size_t npages);
+double* remrow_matrix(size_t* nrows, const double* matrix, const size_t* del, const size_t width, const int ndel);
+double* remcol_matrix(size_t* ncols, const double* matrix, const size_t* del, const size_t width, const size_t nrows, const int ndel);
 
 
 // extra methods for debugging:
@@ -125,6 +126,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	char* keys[npages];
 	size_t* in_list[npages];
 	size_t inlink_counter = 1;
+	size_t no_outlinks = 0;
+	size_t column_delete[npages];
 
 	/*
 		Algorithm: Building Matrix M and M_hat
@@ -146,10 +149,18 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		keys[i] = cpage->name;
 
 		if(cpage->noutlinks == 0){
-			// go down the column putting in the 1/N, adjusted for M_hat
-			for(j = 0; j < npages; j++){
-				matrix[j * npages + i] += one_on_N;
-			}
+			// set the column that needs to be multiplied by "no_outlinks"
+			column_delete[no_outlinks] = i;
+
+			// set the value down the column
+			//if(no_outlinks == 0){
+				// go down the column putting in the 1/N, adjusted for M_hat
+				for(j = 0; j < npages; j++){
+					matrix[j * npages + i] += one_on_N;
+				}
+			//}
+
+			no_outlinks++;
 		}
 
 		inlink = cpage->inlinks;
@@ -177,8 +188,10 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	// reduction algorithm:
 	size_t* map = (size_t*) malloc(sizeof(size_t)*npages);  // maps pages --> matrix_row indexes
 	size_t nrows = npages;
+	size_t ncols = npages;
 
-	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
+	matrix = matrix_reduce(matrix, map, in_list, column_delete, &nrows, &ncols, no_outlinks, npages);
+
 
 	//printf("map: \n");
 	//for(int i=0; i < npages; i++){
@@ -249,7 +262,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	// display results...
 	for(i=0; i < npages; i++){
-		printf("%s %.8lf\n", keys[i], p_result[map[i]]); //p_result[map[i]]);
+		printf("%s %.8lf\n", keys[i], p_built[i]); //p_result[map[i]]);
 	}
 
 	// free everything...
@@ -309,19 +322,21 @@ int list_compare(size_t** list, const int row){
 /**
  * 	Reduce the matrix size
  */
-double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages){
-	size_t next_del = 0;
+double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, const size_t* delete_cols, size_t* nrows, size_t* ncols, const size_t ncol_del, const size_t npages){
+	size_t nrow_del = 0;
 	int isSame = -1;
 	size_t row_count = 0;
 
-	size_t* delete_rows = (size_t*) malloc(sizeof(size_t)*(npages-1));  // rows to delete in matrix.
+	//size_t* delete_rows = (size_t*) malloc(sizeof(size_t)*(npages-1));  // rows to delete in matrix.
+	size_t delete_rows[npages];
 
 	for(int row_id = 0; row_id < npages; row_id++){
-		// We already have the maxtrix built, this will form a rectangular matrix, with less rows than the original one.
+		// Check the in-lists for rows that have the same values
 		isSame = list_compare(in_list, row_id);
 
+		// build the map of the rows.  This is very important
 		if(isSame != -1){
-			delete_rows[next_del++] = row_id;
+			delete_rows[nrow_del++] = row_id;
 			map[row_id] = map[isSame];
 		}else{
 			map[row_id] = row_count++;
@@ -330,17 +345,35 @@ double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nro
 
 	double* result = NULL;
 
-	if(next_del == 0){
+	if(nrow_del == 0){
+		// this was a huge waste of time... set result to what we received.
 		result = matrix;
 		*nrows = npages;
 	}else{
-		result = (double*)malloc(sizeof(double)*(npages*(npages-next_del)));
-		*nrows = build_matrix(result, matrix, delete_rows, npages, next_del);  // returns number of rows, puts result in first arg.
+		// build a new matrix with a reduced number of rows.  Delete the rows in delete_rows[].
+		//  Return new matrix and set new number of rows (inside method).
+		result = remrow_matrix(nrows, matrix, delete_rows, npages, nrow_del);
+		// free the old matrix.
 		free(matrix);
 	}
 
+	/*if(ncol_del == 0){
+		// nothing to do here... we can just use the other matrix returned above.
+
+	}else{
+		// reduce the number of columns in the result, dump matrix
+		if(result == NULL){
+			result = remcol_matrix(ncols, matrix, delete_cols, npages,*nrows, ncol_del);
+			free(matrix);
+		}else{
+			matrix = remcol_matrix(ncols, result, delete_cols, npages, *nrows, ncol_del);
+			free(result);
+			result = matrix;
+		}
+	}*/
+
 	// free extra data structures
-	free(delete_rows);
+	//free(delete_rows);
 
 	for(int i=0; i < npages; i++){
 		free(in_list[i]);
@@ -354,35 +387,81 @@ double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nro
 /**
  *	Function to build a new matrix, removing the rows that are not wanted (given in an array).
  */
-size_t build_matrix(double* result, const double* matrix, const size_t* del_rows, const size_t width, const int end_del){
-	if(end_del == 0){
-		// no reduction acheived... this is worst case run time.
-		return width;
-	}
+double* remrow_matrix(size_t* nrows, const double* matrix, const size_t* del, const size_t width, const int ndel){
+	// set the new number of rows, which is the old no. rows mnius the no. rows deleted.
+	size_t num_rows = width - ndel;
 
-	size_t num_rows = width - end_del;
+	// keep track of where we are in the del[]
 	int next = 0;
 
-	// columns before...
-	int offset = 0;
+	// create a new matrix that is smaller than the given matrix:
+	double* result = (double*) malloc(sizeof(double)*(width*num_rows));
 
 	for(int row = 0; row < num_rows; row++){
-		if( next < end_del && (row+offset) == del_rows[next]){
+		if( next < ndel && (row+next) == del[next]){
 			// when we hit the row that we want to remove, increment the offset to skip that row.
-			offset++;
 			next++;
 			row--;
 		}else{
+			// add column to matrix
 			for(int col = 0; col < width; col++){
-				result[(row) * width + (col)] = matrix[(row+offset) * (width) + (col)];
+				result[(row) * width + (col)] = matrix[(row+next) * (width) + (col)];
 			}
 		}
 
 	}
 
-	// return the new, reduced number of rows...
-	return num_rows;
+	// set the reduced number of rows..
+	*nrows = num_rows;
 
+	// return the new matrix:
+	return result;
+}
+
+
+/**
+ *	Function to build a new matrix, removing the columns that are not wanted (given in an array).
+ */
+double* remcol_matrix(size_t* ncols, const double* matrix, const size_t* del, const size_t width, const size_t nrows, const int ndel){
+	// set the new number of rows, which is the old no. rows mnius the no. rows deleted.
+	size_t num_cols = width - ndel;
+
+	// keep track of where we are in the del[]
+	// we need to keep one column.
+	int next = 1;
+
+	// create a new matrix that is smaller than the given matrix:
+	double* result = (double*) malloc(sizeof(double)*(nrows*num_cols));
+
+	// keeping one column
+	for(int row = 0; row < nrows; row++){
+		result[(row) * num_cols + (del[0])] = matrix[(row) * (width) + (del[0])] * ndel;
+	}
+
+	for(int col = 0; col < num_cols; col++){
+		if( next < ndel && (col+next) == del[next]){
+			// when we hit the row that we want to remove, increment the offset to skip that row.
+			next++;
+			col--;
+		}else{
+			// add column to matrix
+			for(int row = 0; row < nrows; row++){
+				result[(row) * num_cols + (col)] = matrix[(row) * (width) + (col+next)];
+			}
+		}
+
+	}
+
+	printf("ncols: %zu  |  nrows:  %zu\n", num_cols, nrows);
+	display_matrix(result, nrows, num_cols);
+
+	//exit(0);
+
+	// set the reduced number of rows..
+	*ncols = num_cols;
+
+	// return the new matrix:
+	return result;
 }
 
 
