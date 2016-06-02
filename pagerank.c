@@ -31,16 +31,12 @@ int list_compare(size_t** list, const int row);
 double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages);
 double* remrow_matrix(size_t* nrows, const double* matrix, const size_t* del, const size_t width, const int ndel);
 
+#ifdef EBUG
 // extra methods for debugging:
 void display(const double* matrix, size_t npage);
 void display_matrix(const double* matrix, size_t rows, size_t npages);
 void display_vector(const double* vector, size_t npage);
-
-
-// function pointers to threading operations:
-
-
-
+#endif
 
 // matrix struct:
 typedef struct {
@@ -61,26 +57,29 @@ typedef struct{
 
 void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double dampener) {
 	/*
-		TODO
-
-		- implement this function
-		- implement any other necessary functions
-		- implement any other useful data structures
-	*/
-
-	/*  What goes in each (i,j)th cell:
+		***********************
+		*  PageRank Overview  *
+		***********************
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		Section 1:  Matrix "M"
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		What goes in each (i,j)th cell:
 
 						1 / N			if |OUT(j)| = 0  (doesn't link to anything)
 			M(i,j)  =   1 / |OUT(j)|	if j links to i  (does link to that page)
-						0				otherwise		(doesn't link to that page)
-
-
+						0				otherwise		 (doesn't link to that page)
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		Section 2: Matrix "M^"
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		As well as this, we need to apply the damping factor (at the same time for speeeeeed)
 
 			^M = d*M(i,j) + ((1 - d) / N)
 
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		Section 3: "General Algorithm"
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		Algorithm: PageRank main
-		1) Calculate |OUT| and |IN| sets  <<<<<<<<<< HARD
+		1) Calculate |OUT| and |IN| sets
 		2) Build Matrix (including dampener)
 		3) Initialise P(0)
 		4) Create a "result" vector
@@ -95,14 +94,12 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	    6) Return P(t) final iteration
 	*/
 
-	// for calculating M-hat (i,j)th entries.
-	const double add_E = ((1.0 - dampener) / (double)npages);
+	// Pre-calculating some values that will be used a number of times...
+	const double add_E = ((1.0 - dampener) / (double)npages);	// used for calculating M-hat (i,j)th entries
+	const double div_page = (1.0 / (double)npages);				// calculate 1/N
+	const double one_on_N = div_page*dampener;					// calculate dampened value for 1/N
 
-	// calculate the 1/N value:
-	const double div_page = (1.0 / (double)npages);
-	const double one_on_N = div_page*dampener;
-
-	// declare matrix and intialise with given value.
+	// declare matrix and P(0) and intialise with given value.
 	double* matrix = matrix_init(add_E, npages*npages, nthreads);
 	double* p_previous = matrix_init(div_page, npages, nthreads);
 	double* p_result = NULL;
@@ -122,10 +119,20 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 	// list of keys:
 	char* keys[npages];
+
+	// list of IN() sets for each index.  used for matrix reduction algorithm.
 	size_t* in_list[npages];
 	size_t inlink_counter = 1;
 
+	// build the IN() set sub-arrays
+	for(int i=0; i < npages; i++){
+		in_list[i] = (size_t*) malloc(sizeof(size_t));
+	}
+
 	/*
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		Section 4: "Building the Matrix"
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 		Algorithm: Building Matrix M and M_hat
 		1)  We are at i (from list)
 		2)  We can fill in down the matrix (everything in i-th column) if noutlinks = 0
@@ -133,15 +140,12 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		4)  The matrix is initialised as M_hat.
 	*/
 
-	for(int i=0; i < npages; i++){
-		in_list[i] = (size_t*) malloc(sizeof(size_t));
-	}
-
 	while(current != NULL){
+		// cache the current page, and current index...
 		cpage = current->page;
 		i = cpage->index;
 
-		// add name to list of keys
+		// add name to list of keys...
 		keys[i] = cpage->name;
 
 		if(cpage->noutlinks == 0){
@@ -157,13 +161,19 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			// calculate 1 / |OUT(j)| for each inlink page, adjusted for M_hat
 			j = inlink->page->index;
 
+			// add the current "inlink" element to the list IN() set for the i-th element (above)
 			in_list[i] = (size_t*) realloc(in_list[i], sizeof(size_t)*(inlink_counter+1));
 			in_list[i][inlink_counter++] = j;
 
+			// set the value in the matrix based on: d * ( 1 / |OUT(j)| )
 			matrix[i * npages + j] += ((1.0 / (double) inlink->page->noutlinks)*dampener);
+
+			// move to next inlink
 			inlink = inlink->next;
 		}
 
+		// sort the list of IN() sets for the i-th element,
+		//   remembering to set the first element as the size of the list (because C).
 		in_list[i][0] = -1;
 		qsort(in_list[i], inlink_counter, sizeof(size_t), sortcmp);
 		in_list[i][0] = inlink_counter-1;
@@ -173,30 +183,39 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		current = current->next;
 	}
 
-	// reduction algorithm:
+	// reduction algorithm (on rows only):
 	size_t* map = (size_t*) malloc(sizeof(size_t)*npages);  // maps pages --> matrix_row indexes
 	size_t nrows = npages;
 
+	// reduce the size of the matrix based on the IN() sets.  This will produce a matrix with a reduced number of
+	//   rows.  Method sets the value of nrows and returns a map of which rows in the old matrix to the rows in the
+	//   new matrix.    map: {0,1,2,...,n} --> {0,1,2,...,m} where m <= n.
 	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
 
-	// We now have the matrix M_hat ready to go...let's start the pagerank iterations.
+
+	// COMMENT: We now have the matrix M_hat ready to go...let's start the pagerank iterations.
 	/*
-			Algorithm: Perform iterations (0 to infinity)
-		     i) Multiply matrix by P(t)
-		    ii) Calculate vector norm for "result" P(t+1) -- cache it for later use.
-		   iii) Check for convergence (using cached value and calculated one)
-		    iv) Either, break if true or run again if false.
-			 v) Store updated cached value for || P(t) ||
-			vi) Free the previous P(t) and set P(t+1) TO p(t)
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		Section 5: "PageRank Power Method"
+		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		Algorithm: Power Method / Iterations (0 to infinity)
+		 i) Multiply matrix by P(t)
+		ii) Calculate vector norm for "result" P(t+1) -- cache it for later use.
+	   iii) Check for convergence (using cached value and calculated one)
+		iv) Either, break if true or run again if false.
+		 v) Store updated cached value for || P(t) ||
+		vi) Free the previous P(t) and set P(t+1) TO p(t)
 	*/
 
-
-	//int iterations = 0;
 	while(1){
+		// allocate memory for the vector returned by the matrix multiplication...
 		p_result = (double*) malloc(sizeof(double)*nrows);
 
+		// multiply the matrix by P(t)
 		matrix_mul(p_result, matrix, p_previous, npages, nrows, nthreads);
 
+		// remap the values to a new vector, due to reduced number of rows.
+		//   m x 1 vector --> n x 1 vector  where m <= n.
 		p_built = build_vector(p_result, map, npages);
 
 		// calculate the vector norm.
@@ -210,17 +229,10 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		free(p_previous);
 		p_previous = p_built;
 		p_result = NULL;
-		//printf("iterations: %u\n", iterations++);
-		//sleep(1);
-
-		//if(iterations > 5) exit(0);
-
 	}
 
-	// display results...
-	for(i=0; i < npages; i++){
-		printf("%s %.8lf\n", keys[i], p_built[i]); //p_result[map[i]]);
-	}
+	// display results...(mapping to old matrix using the "map")
+	for(i=0; i < npages; i++) printf("%s %.8lf\n", keys[i], p_built[i]);
 
 	// free everything...
 	free(matrix);
@@ -233,6 +245,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 /**
  *	Build a larger vector for the next calcuations.
+ *   This fucntion is used to map the values of a vector to a larger vector.
+ *    m x 1 vector --> n x 1 vector  where m <= n.
  */
 double* build_vector(const double* vector, const size_t* map, const size_t npages){
 	double* result = (double*) malloc(sizeof(double)*npages);
@@ -280,23 +294,22 @@ int list_compare(size_t** list, const int row){
  * 	Reduce the matrix size
  */
 double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages){
-	size_t nrow_del = 0;
-	int isSame = -1;
-	size_t row_count = 0;
 
-	//size_t* delete_rows = (size_t*) malloc(sizeof(size_t)*(npages-1));  // rows to delete in matrix.
-	size_t delete_rows[npages];
+	// initialise some variables
+	size_t nrow_del = 0;		// number of rows that need to be deleted
+	size_t row_count = 0;		// number of rows in the new matrix
+	int isSame = -1;			// temp for return of list_compare
+	size_t delete_rows[npages];	// array to hold all indices that are going to be removed.
 
+	// build a map where elements exist in the new matrix and a list of elements to remove.
 	for(int row_id = 0; row_id < npages; row_id++){
-		// Check the in-lists for rows that have the same values
-		isSame = list_compare(in_list, row_id);
 
-		// build the map of the rows.  This is very important
-		if(isSame != -1){
-			delete_rows[nrow_del++] = row_id;
-			map[row_id] = map[isSame];
-		}else{
-			map[row_id] = row_count++;
+		isSame = list_compare(in_list, row_id);	// Check the in-lists for rows that have the same values
+		if(isSame != -1){						// index has the same IN() set as another index.
+			delete_rows[nrow_del++] = row_id;	// add the index to the list of "to be deleted"
+			map[row_id] = map[isSame];			// map the index to one that has already been added to the map.
+		}else{									// index does not have the same IN() set as another index.
+			map[row_id] = row_count++;			// give the index a new row number for the new smaller matrix
 		}
 	}
 
@@ -310,13 +323,13 @@ double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nro
 		// build a new matrix with a reduced number of rows.  Delete the rows in delete_rows[].
 		//  Return new matrix and set new number of rows (inside method).
 		result = remrow_matrix(nrows, matrix, delete_rows, npages, nrow_del);
+
 		// free the old matrix.
 		free(matrix);
 	}
 
-	for(int i=0; i < npages; i++){
-		free(in_list[i]);
-	}
+	// free all the IN() set lists (since we don't need them anymore)
+	for(int i=0; i < npages; i++) free(in_list[i]);
 
 	// return result matrix
 	return result;
@@ -327,7 +340,7 @@ double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nro
  *	Function to build a new matrix, removing the rows that are not wanted (given in an array).
  */
 double* remrow_matrix(size_t* nrows, const double* matrix, const size_t* del, const size_t width, const int ndel){
-	// set the new number of rows, which is the old no. rows mnius the no. rows deleted.
+	// set the new number of rows, which is the old no. rows minus the no. rows deleted.
 	size_t num_rows = width - ndel;
 
 	// keep track of where we are in the del[]
@@ -645,7 +658,7 @@ void* matrix_mul_worker(void* argv){
 
 
 
-//#ifdef EBUG
+#ifdef EBUG
 /**
  * Displays given matrix.
  */
@@ -687,7 +700,7 @@ void display_vector(const double* vector, size_t npage) {
 	}
 	printf("\n");
 }
-//#endif
+#endif
 
 /*
 ######################################
