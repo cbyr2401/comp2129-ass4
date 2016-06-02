@@ -25,7 +25,8 @@ void* matrix_mul_worker(void* argv);
 
 
 // reduction operations:
-double* build_vector(double* result, const double* vector, const size_t* map, const size_t npages);
+//double* build_vector(double* result, const double* vector, const size_t* map, const size_t npages);
+void build_vector(double* result, const double* vector, const size_t* map, const size_t npages);
 int sortcmp(const void * a, const void * b);
 int list_compare(size_t** list, const int row);
 double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages);
@@ -115,7 +116,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	page* cpage = NULL;
 
 	// variables for the vector norm of each matrix:
-	double norm_result = 0;
+	double norm_result = 1.0;
 
 	// list of keys:
 	char* keys[npages];
@@ -209,14 +210,17 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	// allocate memory for the vector returned by the matrix multiplication...
 	p_result = (double*) malloc(sizeof(double)*nrows);
 	p_built = (double*) malloc(sizeof(double)*npages);
-
+	//int iterations = 0;
 	while(1){
+		//printf("interation: %i\n", iterations++);
+
 		// multiply the matrix by P(t)
 		matrix_mul(p_result, matrix, p_previous, npages, nrows, nthreads);
 
 		// remap the values to a new vector, due to reduced number of rows.
 		//   m x 1 vector --> n x 1 vector  where m <= n.
 		build_vector(p_built, p_result, map, npages);
+		//display_vector(p_built, npages);
 
 		// calculate the vector norm.
 		norm_result = vector_norm(p_built, p_previous, npages, nthreads);
@@ -225,10 +229,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		if(norm_result <= EPSILON) break;
 
 		// set up for next iteration...
-		//free(p_result);
 		free(p_previous);
 		p_previous = p_built;
-		//p_result = NULL;
 	}
 
 	// display results...(mapping to old matrix using the "map")
@@ -248,14 +250,14 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
  *   This fucntion is used to map the values of a vector to a larger vector.
  *    m x 1 vector --> n x 1 vector  where m <= n.
  */
-double* build_vector(double* result, const double* vector, const size_t* map, const size_t npages){
+void build_vector(double* result, const double* vector, const size_t* map, const size_t npages){
 	//double* result = (double*) malloc(sizeof(double)*npages);
 
 	for(int i = 0; i < npages; i++){
 		result[i] = vector[map[i]];
 	}
 
-	return result;
+	//return result;
 }
 
 /**
