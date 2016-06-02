@@ -28,9 +28,8 @@ void* matrix_mul_worker(void* argv);
 double* build_vector(const double* vector, const size_t* map, const size_t npages);
 int sortcmp(const void * a, const void * b);
 int list_compare(size_t** list, const int row);
-double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages, const size_t nthreads);
+double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages);
 double* remrow_matrix(size_t* nrows, const double* matrix, const size_t* del, const size_t width, const int ndel);
-void* sort_list(void* argv);
 
 // extra methods for debugging:
 void display(const double* matrix, size_t npage);
@@ -39,6 +38,8 @@ void display_vector(const double* vector, size_t npage);
 
 
 // function pointers to threading operations:
+
+
 
 
 // matrix struct:
@@ -51,23 +52,12 @@ typedef struct {
 	int end;
 } threadargs;
 
-typedef struct {
-	size_t** list;
-	size_t* del;
-	size_t* map;
-	size_t* crow;
-	int start;
-	int end;
-} buildargs;
-
 // qsort and other
 typedef struct{
 	int* list;
 	int size;
 } array;
 
-// my mutux
-pthread_mutex_t mutexRowCount;
 
 void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double dampener) {
 	/*
@@ -174,8 +164,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			inlink = inlink->next;
 		}
 
-		//in_list[i][0] = -1;
-		//qsort(in_list[i], inlink_counter, sizeof(size_t), sortcmp);
+		in_list[i][0] = -1;
+		qsort(in_list[i], inlink_counter, sizeof(size_t), sortcmp);
 		in_list[i][0] = inlink_counter-1;
 		inlink_counter = 1;
 
@@ -187,7 +177,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	size_t* map = (size_t*) malloc(sizeof(size_t)*npages);  // maps pages --> matrix_row indexes
 	size_t nrows = npages;
 
-	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages, nthreads);
+	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
 
 	// We now have the matrix M_hat ready to go...let's start the pagerank iterations.
 	/*
@@ -289,48 +279,13 @@ int list_compare(size_t** list, const int row){
 /**
  * 	Reduce the matrix size
  */
-double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages, const size_t nthreads){
+double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages){
 	size_t nrow_del = 0;
 	int isSame = -1;
 	size_t row_count = 0;
 
 	//size_t* delete_rows = (size_t*) malloc(sizeof(size_t)*(npages-1));  // rows to delete in matrix.
 	size_t delete_rows[npages];
-
-	// spawn threads to do this task...way too many comparisons for just one thread.
-	// ****************************************************************************
-	// initialise arrays for threading
-	pthread_t thread_ids[nthreads];
-	buildargs args[nthreads];
-
-	// get a function pointer to worker thread:
-	void* (*worker)(void*);
-	worker = &sort_list;
-
-	// initalise ranges
-	int start = 0;
-	int end = 0;
-
-	// set arguments for worker
-	for(int id=0; id < nthreads; id++){
-		end = id == nthreads - 1 ? npages : (id + 1) * (npages / nthreads);
-		args[id] = (buildargs) {
-			.list = in_list,
-			.start = start,
-			.end = end,
-		};
-		start = end;
-	}
-
-	// launch threads
-	for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
-
-	// wait for threads to finish
-	for (int i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
-
-
-	// ****************************************************************************
-
 
 	for(int row_id = 0; row_id < npages; row_id++){
 		// Check the in-lists for rows that have the same values
@@ -365,52 +320,6 @@ double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nro
 
 	// return result matrix
 	return result;
-}
-
-
-/**
- *	Build Map worker function for row-reduction / removal process.  WARN: uses a global mutex
- */
-void* sort_list(void* argv){
-	buildargs* data = (buildargs*) argv;
-
-	const int start = data->start;
-	const int end = data->end;
-
-	//size_t* del = data->del;
-	//size_t* map = data->map;
-	//size_t* row_count = data->row;
-
-	size_t** list = data->list;
-	size_t items = 0;
-
-	//in_list[i][0] = -1;
-	for(int i = start; i < end; i++){
-		items = list[i][0];
-		list[i][0] = -1;
-		qsort(list[i], items, sizeof(size_t), sortcmp);
-		list[i][0] = items;
-	}
-
-
-	/*for(int row_id = start; row_id < end; row_id++){
-		// Check the in-lists for rows that have the same values
-		isSame = list_compare(list, row_id);
-
-		// build the map of the rows.  This is very important
-		if(isSame != -1){
-			pthread_mutex_lock (&mutexRowCount);
-			delete_rows[*nrow_del++] = row_id;
-			map[row_id] = map[isSame];
-			pthread_mutex_unlock (&mutexRowCount);
-		}else{
-			pthread_mutex_lock (&mutexRowCount);
-			map[row_id] = row_count++;
-			pthread_mutex_unlock (&mutexRowCount);
-		}
-	}*/
-
-	return NULL;
 }
 
 
