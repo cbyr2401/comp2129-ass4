@@ -25,7 +25,7 @@ void* matrix_mul_worker(void* argv);
 
 
 // reduction operations:
-double* build_vector(double* result, const double* vector, const size_t* map, const size_t npages);
+//double* build_vector(double* result, const double* vector, const size_t* map, const size_t npages);
 //void build_vector(double* result, const double* vector, const size_t* map, const size_t npages);
 int sortcmp(const void * a, const void * b);
 int list_compare(size_t** list, const int row);
@@ -218,7 +218,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 		// remap the values to a new vector, due to reduced number of rows.
 		//   m x 1 vector --> n x 1 vector  where m <= n.
-		build_vector(p_built, p_result, map, npages);
+		//build_vector(p_built, p_result, map, npages);
+		for(int i = 0; i < npages; i++) p_built[i] = p_result[map[i]];
 
 		// calculate the vector norm.
 		norm_result = vector_norm(vector, p_built, p_previous, npages, nthreads);
@@ -250,7 +251,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
  *   This fucntion is used to map the values of a vector to a larger vector.
  *    m x 1 vector --> n x 1 vector  where m <= n.
  */
-double* build_vector(double* result, const double* vector, const size_t* map, const size_t npages){
+/*inline double* build_vector(double* result, const double* vector, const size_t* map, const size_t npages){
 	//double* result = (double*) malloc(sizeof(double)*npages);
 
 	for(int i = 0; i < npages; i++){
@@ -258,7 +259,7 @@ double* build_vector(double* result, const double* vector, const size_t* map, co
 	}
 
 	return result;
-}
+} */
 
 /**
  *	Description:	Compare function for qsort
@@ -310,6 +311,7 @@ double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nro
 		if(isSame != -1){						// index has the same IN() set as another index.
 			delete_rows[nrow_del++] = row_id;	// add the index to the list of "to be deleted"
 			map[row_id] = map[isSame];			// map the index to one that has already been added to the map.
+			in_list[row_id][0] = 0;
 		}else{									// index does not have the same IN() set as another index.
 			map[row_id] = row_count++;			// give the index a new row number for the new smaller matrix
 		}
