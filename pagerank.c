@@ -16,17 +16,11 @@ void* vector_sumsq_worker(void* argv);
 double* vector_sub(double* vector, const double* vector_a, const double* vector_b, const size_t width, const size_t nthreads);
 void* vector_sub_worker(void* argv);
 
-
 // matrix operations:
-double* matrix_init(const double value, size_t n, size_t nthreads);
-void* matrix_init_worker(void* argv);
 void matrix_mul(double* result, const double* matrix, const double* vector, const size_t width, const size_t height, const size_t nthreads);
 void* matrix_mul_worker(void* argv);
 
-
 // reduction operations:
-//double* build_vector(double* result, const double* vector, const size_t* map, const size_t npages);
-//void build_vector(double* result, const double* vector, const size_t* map, const size_t npages);
 int sortcmp(const void * a, const void * b);
 int list_compare(size_t** list, const int row);
 double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages);
@@ -129,9 +123,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	size_t inlink_counter = 1;
 
 	// build the IN() set sub-arrays
-	for(int i=0; i < npages; i++){
-		in_list[i] = (size_t*) malloc(sizeof(size_t));
-	}
+	for(int i=0; i < npages; i++) in_list[i] = (size_t*) malloc(sizeof(size_t));
 
 	/*
 		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -247,21 +239,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	free(map);
 }
 
-
-/**
- *	Build a larger vector for the next calcuations.
- *   This fucntion is used to map the values of a vector to a larger vector.
- *    m x 1 vector --> n x 1 vector  where m <= n.
- */
-/*inline double* build_vector(double* result, const double* vector, const size_t* map, const size_t npages){
-	//double* result = (double*) malloc(sizeof(double)*npages);
-
-	for(int i = 0; i < npages; i++){
-		result[i] = vector[map[i]];
-	}
-
-	return result;
-} */
 
 /**
  *	Description:	Compare function for qsort
@@ -387,7 +364,6 @@ double vector_norm(double* vector, const double* vector_a, const double* vector_
 
 	result = vector_sumsq(vector, width, nthreads);
 	result = sqrt(result);
-	//free(vector);
 
 	return result;
 }
@@ -458,73 +434,6 @@ void* vector_sumsq_worker(void* argv){
 	}
 	*result = sum;
 	data->result = result;
-
-	return NULL;
-}
-
-
-/**
- *	Initialises a matrix to the given value.
- */
-double* matrix_init(const double value, size_t n, size_t nthreads){
-	double* matrix = (double*) malloc((n) * sizeof(double));
-
-	if(n < TOPTIMIAL){
-		for(int i=0; i < n; i++){
-			matrix[i] = value;
-		}
-	}else{
-		// initialise arrays for threading
-		pthread_t thread_ids[nthreads];
-		threadargs args[nthreads];
-
-		// get a function pointer to worker thread:
-		void* (*worker)(void*);
-		worker = &matrix_init_worker;
-
-		// initalise ranges
-		int start = 0;
-		int end = 0;
-
-		// set arguments for worker
-		for(int id=0; id < nthreads; id++){
-			end = id == nthreads - 1 ? n : (id + 1) * (n / nthreads);
-			args[id] = (threadargs) {
-				.result = matrix,
-				.matrix = &value,
-				.start = start,
-				.width = n,
-				.end = end,
-			};
-			start = end;
-		}
-
-		// launch threads
-		for (int i = 0; i < nthreads; i++) pthread_create(thread_ids + i, NULL, worker, args + i );
-
-		// wait for threads to finish
-		for (int i = 0; i < nthreads; i++) pthread_join(thread_ids[i], NULL);
-	}
-
-	return matrix;
-}
-
-
-/**
- *	Thread Worker for "matrix_init"
- */
-void* matrix_init_worker(void* argv){
-	threadargs* data = (threadargs*) argv;
-
-	const int start = data->start;
-	const int end = data->end;
-
-	const double value = *(data->matrix);
-	double* matrix = data->result;
-
-	for(int i=start; i < end; i++){
-		matrix[i] = value;
-	}
 
 	return NULL;
 }
