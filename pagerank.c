@@ -49,11 +49,6 @@ typedef struct {
 	int end;
 } threadargs;
 
-// qsort and other
-typedef struct{
-	int* list;
-	int size;
-} array;
 
 
 void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double dampener) {
