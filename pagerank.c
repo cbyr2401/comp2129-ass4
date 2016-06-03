@@ -96,8 +96,16 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	const double one_on_N = div_page*dampener;					// calculate dampened value for 1/N
 
 	// declare matrix and P(0) and intialise with given value.
-	double* matrix = matrix_init(add_E, npages*npages, nthreads);
-	double* p_previous = matrix_init(div_page, npages, nthreads);
+	const int nnpages = npages*npages;
+	const int nnpages_size = nnpages*sizeof(double);
+	const int npages_size = npages*sizeof(double);
+
+	double* matrix = malloc(nnpages_size);
+	double* p_previous = malloc(npages_size);
+
+	for(int i=0; i < npages; i++) p_previous[i] = div_page;
+	for(int i=0; i < nnpages; i++)	matrix[i] = add_E;
+
 	double* p_result = NULL;
 	double* p_built = NULL;
 
@@ -204,8 +212,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	*/
 	// allocate memory for the vector returned by the matrix multiplication...
 	p_result = (double*) malloc(sizeof(double)*nrows);
-	p_built = (double*) malloc(sizeof(double)*npages);
-	double* vector = (double*) malloc(sizeof(double)*npages);
+	p_built = (double*) malloc(npages_size);
+	double* vector = (double*) malloc(npages_size);
 
 	while(1){
 		// multiply the matrix by P(t)
@@ -213,7 +221,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 		// remap the values to a new vector, due to reduced number of rows.
 		//   m x 1 vector --> n x 1 vector  where m <= n.
-		//build_vector(p_built, p_result, map, npages);
 		for(int i = 0; i < npages; i++) p_built[i] = p_result[map[i]];
 
 		// calculate the vector norm.
@@ -223,8 +230,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		if(norm_result <= EPSILON) break;
 
 		// set up for next iteration...
-		for(int i = 0; i < npages; i++) p_previous[i] = p_built[i];
-		//memcpy(p_previous, p_result, sizeof(double)*npages);
+		//for(int i = 0; i < npages; i++) p_previous[i] = p_built[i];
+		memcpy(p_previous, p_built, npages_size);
 
 	}
 
@@ -301,7 +308,6 @@ double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nro
 
 	// build a map where elements exist in the new matrix and a list of elements to remove.
 	for(int row_id = 0; row_id < npages; row_id++){
-
 		isSame = list_compare(in_list, row_id);	// Check the in-lists for rows that have the same values
 		if(isSame != -1){						// index has the same IN() set as another index.
 			delete_rows[nrow_del++] = row_id;	// add the index to the list of "to be deleted"
@@ -642,13 +648,19 @@ void* matrix_mul_worker(void* argv){
 	double* result = data->result;
 
 	double sum = 0.0;
-
+	int j;
+	int index = 0;
 	// only use for a matrix * vector ( ^M * P(t) )
 	for(int i=start; i < end; i++){
 		sum = 0.0;
-		for(int j=0; j < width; j++){
-			sum += (matrix[i * width + j]*vector[j]);
+		index = i * width;
+		for(j=0; j < width - 4; j += 4){
+			sum += (matrix[index + j]*vector[j]
+					+ matrix[index + (j+1)]*vector[j+1]
+					+ matrix[index + (j+2)]*vector[j+2]
+					+ matrix[index + (j+3)]*vector[j+3]);
 		}
+		for(; j < width; j++) sum+= matrix[i * width + j]*vector[j];
 		result[i] = sum;
 	}
 
