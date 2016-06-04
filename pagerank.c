@@ -84,11 +84,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	    6) Return P(t) final iteration
 	*/
 
-
-	printf("Starting pagerank...\n");
-	fflush(stdout);
-
-
 	// Pre-calculating some values that will be used a number of times...
 	const double add_E = ((1.0 - dampener) / (double)npages);	// used for calculating M-hat (i,j)th entries
 	const double div_page = (1.0 / (double)npages);				// calculate 1/N
@@ -99,16 +94,19 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	const int nnpages_size = nnpages*sizeof(double);
 	const int npages_size = npages*sizeof(double);
 
-	double* matrix = malloc(nnpages_size);
-	double* p_previous = malloc(npages_size);
-
+	// allocate memory for the vector returned by the matrix multiplication...
+	double* matrix = (double*) malloc(nnpages_size);
+	double* p_previous = (double*) malloc(npages_size);
 	double* p_result = NULL;
-	double* p_built = NULL;
+	double* p_built = (double*) malloc(npages_size);
+	double* vector = (double*) malloc(npages_size);
 
 	// matrix index temp values:
 	size_t i = 0;
 	size_t j = 0;
+	size_t row_count = 0;
 
+	// initialise the matrix and p_previous
 	for(i=0; i < npages; i++) p_previous[i] = div_page;
 	for(i=0; i < nnpages; i++) matrix[i] = add_E;
 
@@ -123,19 +121,10 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	// list of keys:
 	char* keys[npages];
 
-	// list of IN() sets for each index.  used for matrix reduction algorithm.
-	//size_t* in_list[npages];
-	//size_t inlink_counter = 1;
-
 	// reduction algorithm (on rows only):
-	size_t* map = (size_t*) malloc(sizeof(size_t)*npages);  // maps pages --> matrix_row indexes
-	size_t row_count = 0;
-	int isSame = -1;
+	size_t map[npages];  // maps pages --> matrix_row indexes
 	double temp_row[npages];
-
-
-	// build the IN() set sub-arrays
-	//for(int i=0; i < npages; i++) in_list[i] = (size_t*) malloc(sizeof(size_t));
+	int isSame = -1;
 
 	/*
 		~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -148,8 +137,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		4)  The matrix is initialised as M_hat.
 	*/
 
-
-
 	while(current != NULL){
 		// cache the current page, and current index...
 		cpage = current->page;
@@ -160,14 +147,14 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 		if(cpage->noutlinks == 0){
 			// go down the column putting in the 1/N, adjusted for M_hat
-			for(j = 0; j < npages; j++)	matrix[j * npages + i] = one_on_N + add_E;
+			for(j = 0; j < npages; j++) matrix[j * npages + i] = one_on_N + add_E;
 		}
 
 		inlink = cpage->inlinks;
 
 		// backup of current row
 		//memcpy(&temp_row[0], &matrix[row_count*npages], npages_size);
-		if(row_count > 0) {for(int i=0; i < npages; i++) temp_row[i] = matrix[row_count*npages+i];}
+		if(row_count > 0){for(int i=0; i < npages; i++) temp_row[i] = matrix[row_count*npages+i];}
 
 		while(inlink != NULL){
 			// calculate 1 / |OUT(j)| for each inlink page, adjusted for M_hat
@@ -184,15 +171,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		// compare row vector in the matrix, and if it is the same, put the next entry into the row we just filled
 		//   and map the result to the cell that is the same.
 		// build a map where elements exist in the new matrix and a list of elements to remove.
-
-
-		printf("Checking if the same as another page %zu.\n", i);
-
+		printf("comparing list: %zu \t %zu \n", i, row_count);
 		isSame = list_compare(matrix, row_count, npages);	// Check the in-lists for rows that have the same values
-
-
-		printf("finished checking that. %zu. \t %i\n", i, isSame);
-
 
 		if(isSame != -1){						// index has the same IN() set as another index.
 			map[i] = map[isSame];				// map the index to one that has already been added to the map.
@@ -209,19 +189,13 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	// reduction algorithm (on rows only):
 	size_t nrows = row_count;
 
-
-
-	display_matrix(matrix, nrows, npages);
-	printf("map:\n");
-	for(int i=0; i < npages; i++){
-		printf("%i\t%zu\n",i, map[i]);
-	}
-
-
-	// reduce the size of the matrix based on the IN() sets.  This will produce a matrix with a reduced number of
-	//   rows.  Method sets the value of nrows and returns a map of which rows in the old matrix to the rows in the
-	//   new matrix.    map: {0,1,2,...,n} --> {0,1,2,...,m} where m <= n.
-	//matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
+	#ifdef EBUG
+		display_matrix(matrix, nrows, npages);
+		printf("map:\n");
+		for(int i=0; i < npages; i++){
+			printf("%i\t%zu\n",i, map[i]);
+		}
+	#endif
 
 
 	// COMMENT: We now have the matrix M_hat ready to go...let's start the pagerank iterations.
@@ -237,12 +211,8 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		 v) Store updated cached value for || P(t) ||
 		vi) Free the previous P(t) and set P(t+1) TO p(t)
 	*/
-	// allocate memory for the vector returned by the matrix multiplication...
+
 	p_result = (double*) malloc(sizeof(double)*nrows);
-	p_built = (double*) malloc(npages_size);
-	double* vector = (double*) malloc(npages_size);
-
-
 
 	while(1){
 		// multiply the matrix by P(t)
@@ -274,7 +244,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	free(p_built);
 	free(p_previous);
 	free(vector);
-	free(map);
+	//free(map);
 }
 
 
@@ -298,7 +268,7 @@ int list_compare(const double* list, const size_t row, const size_t width){
 	for(i=0; i < row; i++){
 		// same size, continue:
 		for(int j=0; j < width; j++){
-			if(fabs(list[row * width + j] - list[i * width + j] < 0.000000005) != 1){ flag= 0; break;}
+			if((fabs(list[row * width + j] - list[i * width + j]) < 0.000000005) != 1){ flag= 0; break;}
 			else flag = 1;
 		}
 		if(flag) return i;
