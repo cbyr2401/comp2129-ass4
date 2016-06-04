@@ -7,6 +7,6 @@ time ./pagerank 4 < tests/test12.in | diff - tests/test12.out
 #./pagerank 4 < tests/cdog-medium.in
 #./pagerank 2 < tests/test04.in
 #valgrind --show-leak-kinds=all --leak-check=full ./pagerank 4 < tests/test12.in | diff - tests/test12.out
-#valgrind --show-leak-kinds=all --leak-check=full ./pagerank 4 < tests/test12.in #| diff - tests/sample.out
-#gprof pagerank
+#valgrind --show-leak-kinds=all --leak-check=full ./pagerank 4 < tests/cdog-medium.in | diff - tests/cdog-medium.out
+gprof pagerank
 #head tests/cdog-medium.out

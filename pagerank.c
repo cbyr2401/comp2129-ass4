@@ -23,8 +23,6 @@ void* matrix_mul_worker(void* argv);
 // reduction operations:
 int sortcmp(const void * a, const void * b);
 int list_compare(size_t** list, const int row);
-double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages);
-double* remrow_matrix(size_t* nrows, const double* matrix, const size_t* del, const size_t width, const int ndel);
 
 #ifdef EBUG
 // extra methods for debugging:
@@ -42,6 +40,15 @@ typedef struct {
 	int start;
 	int end;
 } threadargs;
+
+typedef struct {
+	double result;
+	const double* matrix;
+	const double* vector;
+	int width;
+	int start;
+	int end;
+} vectorargs;
 
 
 
@@ -94,18 +101,19 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	const int nnpages_size = nnpages*sizeof(double);
 	const int npages_size = npages*sizeof(double);
 
-	double* matrix = malloc(nnpages_size);
-	double* p_previous = malloc(npages_size);
-
-	for(int i=0; i < npages; i++) p_previous[i] = div_page;
-	for(int i=0; i < nnpages; i++)	matrix[i] = add_E;
-
+	double* matrix = (double*) malloc(nnpages_size);
+	double* p_previous = (double*) malloc(npages_size);
 	double* p_result = NULL;
-	double* p_built = NULL;
+	double* p_built = (double*) malloc(npages_size);
+	double* vector = (double*) malloc(npages_size);
 
 	// matrix index temp values:
 	size_t i = 0;
 	size_t j = 0;
+
+	// initialise matrix and P(0)
+	for(int i=0; i < npages; i++) p_previous[i] = div_page;
+	for(int i=0; i < nnpages; i++)	matrix[i] = add_E;
 
 	// node temp variables
 	node* current = list;
@@ -121,6 +129,12 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	// list of IN() sets for each index.  used for matrix reduction algorithm.
 	size_t* in_list[npages];
 	size_t inlink_counter = 1;
+
+	// reduction algorithm (on rows only):
+	size_t map[npages];  // maps pages --> matrix_row indexes
+	double temp_row[npages];
+	int row_count = 0;
+	int isSame = -1;
 
 	// build the IN() set sub-arrays
 	for(int i=0; i < npages; i++) in_list[i] = (size_t*) malloc(sizeof(size_t));
@@ -146,12 +160,13 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 
 		if(cpage->noutlinks == 0){
 			// go down the column putting in the 1/N, adjusted for M_hat
-			for(j = 0; j < npages; j++){
-				matrix[j * npages + i] += one_on_N;
-			}
+			for(int j = 0; j < npages; j++) matrix[j * npages + i] = one_on_N + add_E;
 		}
 
 		inlink = cpage->inlinks;
+
+		// backup of current row
+		if(row_count > 0){for(int i=0; i < npages; i++) temp_row[i] = matrix[row_count*npages+i];}
 
 		while(inlink != NULL){
 			// calculate 1 / |OUT(j)| for each inlink page, adjusted for M_hat
@@ -162,7 +177,7 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 			in_list[i][inlink_counter++] = j;
 
 			// set the value in the matrix based on: d * ( 1 / |OUT(j)| )
-			matrix[i * npages + j] += ((1.0 / (double) inlink->page->noutlinks)*dampener);
+			matrix[row_count * npages + j] = ((1.0 / (double) inlink->page->noutlinks)*dampener) + add_E;
 
 			// move to next inlink
 			inlink = inlink->next;
@@ -173,20 +188,28 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 		in_list[i][0] = -1;
 		qsort(in_list[i], inlink_counter, sizeof(size_t), sortcmp);
 		in_list[i][0] = inlink_counter-1;
+
+		isSame = list_compare(in_list, i);	// Check the in-lists for rows that have the same values
+
+		if(isSame != -1){						// index has the same IN() set as another index.
+			map[i] = map[isSame];				// map the index to one that has already been added to the map.
+			for(int i=0; i < npages; i++) matrix[row_count*npages+i] = temp_row[i];		// rollback
+			in_list[i][0] = 0;
+		}else{									// index does not have the same IN() set as another index.
+			map[i] = row_count++;				// give the index a new row number for the new smaller matrix
+		}
+
 		inlink_counter = 1;
 
 		// move to next page
 		current = current->next;
 	}
 
-	// reduction algorithm (on rows only):
-	size_t* map = (size_t*) malloc(sizeof(size_t)*npages);  // maps pages --> matrix_row indexes
-	size_t nrows = npages;
+	// set new number of rows
+	size_t nrows = row_count;
 
-	// reduce the size of the matrix based on the IN() sets.  This will produce a matrix with a reduced number of
-	//   rows.  Method sets the value of nrows and returns a map of which rows in the old matrix to the rows in the
-	//   new matrix.    map: {0,1,2,...,n} --> {0,1,2,...,m} where m <= n.
-	matrix = matrix_reduce(matrix, map, in_list, &nrows, npages);
+	// free all the IN() set lists (since we don't need them anymore)
+	for(int i=0; i < npages; i++) free(in_list[i]);
 
 
 	// COMMENT: We now have the matrix M_hat ready to go...let's start the pagerank iterations.
@@ -204,8 +227,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	*/
 	// allocate memory for the vector returned by the matrix multiplication...
 	p_result = (double*) malloc(sizeof(double)*nrows);
-	p_built = (double*) malloc(npages_size);
-	double* vector = (double*) malloc(npages_size);
 
 	while(1){
 		// multiply the matrix by P(t)
@@ -236,7 +257,6 @@ void pagerank(node* list, size_t npages, size_t nedges, size_t nthreads, double 
 	free(p_built);
 	free(p_previous);
 	free(vector);
-	free(map);
 }
 
 
@@ -254,7 +274,7 @@ int sortcmp(const void * a, const void * b){
  * 	Compares lists and returns the row_id of the FIRST list that is the same or -1.
  *		We only want to go upto the ones that we have seen.
  */
-int list_compare(size_t** list, const int row){
+inline int list_compare(size_t** list, const int row){
 	int i;
 	int flag = 0;
 	for(i=0; i < row; i++){
@@ -269,87 +289,6 @@ int list_compare(size_t** list, const int row){
 		}
 	}
 	return -1;
-}
-
-
-/**
- * 	Reduce the matrix size
- */
-double* matrix_reduce(double* matrix, size_t* map, size_t** in_list, size_t* nrows, const size_t npages){
-
-	// initialise some variables
-	size_t nrow_del = 0;		// number of rows that need to be deleted
-	size_t row_count = 0;		// number of rows in the new matrix
-	int isSame = -1;			// temp for return of list_compare
-	size_t delete_rows[npages];	// array to hold all indices that are going to be removed.
-
-	// build a map where elements exist in the new matrix and a list of elements to remove.
-	for(int row_id = 0; row_id < npages; row_id++){
-		isSame = list_compare(in_list, row_id);	// Check the in-lists for rows that have the same values
-		if(isSame != -1){						// index has the same IN() set as another index.
-			delete_rows[nrow_del++] = row_id;	// add the index to the list of "to be deleted"
-			map[row_id] = map[isSame];			// map the index to one that has already been added to the map.
-			in_list[row_id][0] = 0;
-		}else{									// index does not have the same IN() set as another index.
-			map[row_id] = row_count++;			// give the index a new row number for the new smaller matrix
-		}
-	}
-
-	double* result = NULL;
-
-	if(nrow_del == 0){
-		// this was a huge waste of time... set result to what we received.
-		result = matrix;
-		*nrows = npages;
-	}else{
-		// build a new matrix with a reduced number of rows.  Delete the rows in delete_rows[].
-		//  Return new matrix and set new number of rows (inside method).
-		result = remrow_matrix(nrows, matrix, delete_rows, npages, nrow_del);
-
-		// free the old matrix.
-		free(matrix);
-	}
-
-	// free all the IN() set lists (since we don't need them anymore)
-	for(int i=0; i < npages; i++) free(in_list[i]);
-
-	// return result matrix
-	return result;
-}
-
-
-/**
- *	Function to build a new matrix, removing the rows that are not wanted (given in an array).
- */
-double* remrow_matrix(size_t* nrows, const double* matrix, const size_t* del, const size_t width, const int ndel){
-	// set the new number of rows, which is the old no. rows minus the no. rows deleted.
-	size_t num_rows = width - ndel;
-
-	// keep track of where we are in the del[]
-	int next = 0;
-
-	// create a new matrix that is smaller than the given matrix:
-	double* result = (double*) malloc(sizeof(double)*(width*num_rows));
-
-	for(int row = 0; row < num_rows; row++){
-		if( next < ndel && (row+next) == del[next]){
-			// when we hit the row that we want to remove, increment the offset to skip that row.
-			next++;
-			row--;
-		}else{
-			// add column to matrix
-			for(int col = 0; col < width; col++){
-				result[(row) * width + (col)] = matrix[(row+next) * (width) + (col)];
-			}
-		}
-
-	}
-
-	// set the reduced number of rows..
-	*nrows = num_rows;
-
-	// return the new matrix:
-	return result;
 }
 
 
@@ -377,7 +316,7 @@ double vector_sumsq(const double* vector, const size_t width, const size_t nthre
 	double sum = 0.0;
 	// initialise arrays for threading
 	pthread_t thread_ids[nthreads];
-	threadargs args[nthreads];
+	vectorargs args[nthreads];
 
 	// get a function pointer to worker thread:
 	void* (*worker)(void*);
@@ -390,8 +329,8 @@ double vector_sumsq(const double* vector, const size_t width, const size_t nthre
 	// set arguments for worker
 	for(int id=0; id < nthreads; id++){
 		end = id == nthreads - 1 ? width : (id + 1) * (width / nthreads);
-		args[id] = (threadargs) {
-			.result = NULL,
+		args[id] = (vectorargs) {
+			.result = 0,
 			.vector = vector,
 			.start = start,
 			.width = width,
@@ -408,8 +347,8 @@ double vector_sumsq(const double* vector, const size_t width, const size_t nthre
 
 	// sum up results
 	for (int i = 0; i < nthreads; i++){
-		sum += *(args[i].result);
-		free(args[i].result);
+		sum += args[i].result;
+		//free(args[i].result);
 	}
 
 	return sum;
@@ -420,20 +359,19 @@ double vector_sumsq(const double* vector, const size_t width, const size_t nthre
  *	Thread Worker for "vector_sumsq"
  */
 void* vector_sumsq_worker(void* argv){
-	threadargs* data = (threadargs*) argv;
+	vectorargs* data = (vectorargs*) argv;
 
 	const int start = data->start;
 	const int end = data->end;
 
 	const double* vector = data->vector;
-	double* result = malloc(sizeof(double));
 	double sum = 0.0;
 
 	for(int i=start; i < end; i++){
 		sum += vector[i]*vector[i];
 	}
-	*result = sum;
-	data->result = result;
+
+	data->result = sum;
 
 	return NULL;
 }
